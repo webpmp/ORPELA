@@ -39,11 +39,12 @@ On iOS and iPadOS Safari, website storage may be cleared by the browser after ro
 ## Development
 
 ```bash
-npm install
-npm run dev      # Start Vite dev server
-npm run lint     # TypeScript strict check
-npm test         # Run Vitest suite
-npm run build    # Production build (set VITE_BASE_PATH=/orpela/ for GitHub Pages)
+bun install --frozen-lockfile
+bun run dev      # Start Vite dev server at http://localhost:3000/ (base "/")
+bun run lint     # TypeScript strict check
+bun run test     # Run Vitest suite
+bun run build    # Production build (defaults to /ORPELA/ for GitHub Pages)
+VITE_BASE_PATH=/ORPELA/ bun run preview  # Preview dist/ under /ORPELA/ (defaults to "/" when unset)
 ```
 
 ## License

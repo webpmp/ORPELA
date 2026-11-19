@@ -12,11 +12,16 @@ function normalizeBasePath(rawBase?: string): string {
   return withLeading.endsWith('/') ? withLeading : `${withLeading}/`;
 }
 
-export default defineConfig(({mode}) => {
-  const base =
-    mode === 'production'
-      ? normalizeBasePath(process.env.VITE_BASE_PATH || '/')
-      : '/';
+export default defineConfig(({command, mode, isPreview}) => {
+  const isDevServer = command === 'serve' && !isPreview;
+  const isProdBuild = command === 'build' && mode === 'production';
+  const base = isDevServer
+    ? '/'
+    : process.env.VITE_BASE_PATH
+      ? normalizeBasePath(process.env.VITE_BASE_PATH)
+      : isProdBuild
+        ? '/ORPELA/'
+        : '/';
 
   return {
     base,
@@ -24,6 +29,8 @@ export default defineConfig(({mode}) => {
       react(),
       tailwindcss(),
       VitePWA({
+        base,
+        scope: base,
         registerType: 'prompt',
         includeAssets: [
           'icon.svg',

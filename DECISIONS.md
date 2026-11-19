@@ -39,7 +39,7 @@
 
 ## 2026-11-19 — Header Height Expansion & `BASE_URL` Logo Asset Path
 - **Decision:** Changed the main shell header container from fixed `h-12 md:h-16` to `min-h-14 md:min-h-20` with vertical padding (`py-1.5 md:py-2`), and referenced the header logo via `${import.meta.env.BASE_URL}assets/logo-orpela.png`.
-- **Reason:** Allows the stacked logo (24px mobile, 32px `md+`) and "Orpela" wordmark inside a single `>= 44px` tap target without clipping, preserves flex-column sticky layout flow with zero overlap, and ensures the image URL resolves both in root dev mode (`/`) and under the GitHub Pages subpath (`/orpela/`).
+- **Reason:** Allows the stacked logo (24px mobile, 32px `md+`) and "Orpela" wordmark inside a single `>= 44px` tap target without clipping, preserves flex-column sticky layout flow with zero overlap, and ensures the image URL resolves both in root dev mode (`/`) and under the GitHub Pages subpath (`/ORPELA/`).
 
 ## 2026-11-19 — CSS Workaround for Opaque Logo Background (`.brand-logo`)
 - **Decision:** Added `.brand-logo` in `src/index.css` using `mix-blend-mode: multiply` in light mode and `filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen;` under `.dark`, with `isolate` on `<header>` in `src/components/AppShell.tsx`.
@@ -68,3 +68,11 @@
 ## 2026-11-19 — Move Build Specification to `docs/BUILD_SPEC.md`
 - **Decision:** Moved the build specification from `public/assets/aistudio/` to `docs/BUILD_SPEC.md` and removed the empty `public/assets/aistudio/` directory.
 - **Reason:** Prevents Vite from copying the internal specification markdown file into `dist/` and keeps Workbox from precaching it in the service worker (`sw.js`), while excluding `docs/BUILD_SPEC.md` from automated terminology checks since its rule text states the banned term.
+
+## 2026-11-19 — Case-Sensitive `/ORPELA/` GitHub Pages Base Path & Bun CI Alignment
+- **Decision:** Set Vite production `base` (and `VitePWA` `base` / `scope` / manifest `start_url` and `scope`) to default to `'/ORPELA/'` (matching `https://webpmp.github.io/ORPELA/`) while keeping `'/'` in dev, and updated `.github/workflows/ci.yml` to use `oven-sh/setup-bun@v2` + `bun install --frozen-lockfile`, `workflow_dispatch`, and `VITE_BASE_PATH: /ORPELA/`.
+- **Reason:** GitHub Pages URLs are case-sensitive (`webpmp/ORPELA`), and matching the existing `bun.lock` with Bun in CI prevents maintaining two diverging lockfiles (`package-lock.json` and `bun.lock`).
+
+## 2026-11-19 — Node 24 Actions, Bun `1.4.4` Pinning & Strict `main`-Only Publish Guard
+- **Decision:** Upgraded GitHub Actions in `.github/workflows/ci.yml` to Node 24 major versions (`actions/checkout@v7`, `oven-sh/setup-bun@v2`, `actions/configure-pages@v6`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`), pinned `bun-version: "1.4.4"` to match `bun.lock`, gated configure/upload/deploy strictly on `(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'`, set `.env.example` `VITE_BASE_PATH="/"`, and updated `vite.config.ts` so `'/ORPELA/'` is used only for production builds (`command === 'build' && mode === 'production'`) while dev and unset `vite preview` default to `'/'`.
+- **Reason:** Avoids Node 20 runner deprecation failures, prevents future Bun minor/major lockfile format changes from breaking `--frozen-lockfile`, prevents pull requests from ever publishing to GitHub Pages, and keeps local dev/preview working cleanly at `/` without env var overrides.

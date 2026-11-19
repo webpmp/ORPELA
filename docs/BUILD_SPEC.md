@@ -11,7 +11,7 @@ Instructions for the AI coding agent. Read this whole file before writing code. 
 - Open-source prototype: public GitHub repo, deployed to GitHub Pages.
 - Future (do NOT build now): traditional e-reader view, web-article import, AI summaries and lessons (bring-your-own-key, cloud and local models such as LM Studio), cloud sync, browser extension.
 
-**Terminology rule:** never use the abbreviation "RSVP" or the phrase "Rapid Serial Visual Presentation" anywhere: code, identifiers, file names, UI text, README, comments, commit messages, manifest. Use "SWD" or "sequential word display".
+**Terminology rule:** never use the retired acronym (spelled R-S-V-P, with hyphens here) or its long form anywhere: code, identifiers, file names, UI text, README, comments, commit messages, manifest. Use "SWD" or "sequential word display".
 
 ## 2. Hard constraints
 
@@ -340,7 +340,7 @@ Work in this order. Commit at the end of each milestone with a clear message. Do
 - [ ] Statistics recorded
 - [ ] Keyboard shortcuts work
 - [ ] Reduced-motion and contrast requirements met
-- [ ] No "RSVP" anywhere in the repo
+- [ ] No retired technique acronym anywhere in the repo
 - [ ] No critical layout or playback defects
 
 ## 13. Out of scope for v1 (do not build)
@@ -365,7 +365,7 @@ This file lives at `docs/BUILD_SPEC.md`. It must never be placed in `public/`, b
 
 - Targets: desktop browsers, iPad Safari, iPhone Safari (browser and installed Home Screen mode).
 - No backend, no accounts, no analytics, no telemetry. All data stays in the browser.
-- Open-source prototype: public GitHub repo named `orpela`, deployed to GitHub Pages at `https://<user>.github.io/orpela/`.
+- Open-source prototype: public GitHub repo named `ORPELA`, deployed to GitHub Pages at `https://webpmp.github.io/ORPELA/`.
 - Future (do NOT build now): traditional e-reader view, web-article import, AI summaries and lessons, cloud sync, browser extension.
 
 **Terminology rule:** this project does not use the well-known acronym for this reading technique (spelled R-S-V-P, with hyphens here so this file stays clean) or its long form. Use "SWD" or "sequential word display" everywhere: code, identifiers, file names, UI text, README, comments, commit messages, manifest, and docs. A case-insensitive search of the whole repository for that acronym (written without hyphens) must return nothing, with no excluded files.
@@ -399,7 +399,8 @@ This file lives at `docs/BUILD_SPEC.md`. It must never be placed in `public/`, b
 | Routing | Hash-based, lightweight custom hook or equivalent |
 | Tests | Vitest + React Testing Library (unit, hook, component), Playwright (one smoke test) |
 | Lint/format | ESLint + Prettier, `tsc --noEmit` |
-| CI/CD | GitHub Actions: lint, test, build, deploy to GitHub Pages on push to `main` (Pages source set to "GitHub Actions") |
+| Package manager | Bun (`bun.lock`, `bun install --frozen-lockfile`, `bun run ...`) |
+| CI/CD | GitHub Actions: Bun lint, test, build, deploy to GitHub Pages on push or manual dispatch to `main` (Pages source set to "GitHub Actions") |
 
 ## 4. Repository layout
 
@@ -642,7 +643,7 @@ Touch: tap the display to play/pause; swipe left/right for previous/next sentenc
 
 ## 9. PWA and GitHub Pages
 
-- The app is served at `https://<user>.github.io/orpela/`. Read the base path from an environment variable and set Vite `base` accordingly (`'/orpela/'` in production, `'/'` in dev). Manifest `start_url` and `scope`, the service worker scope, and every asset URL (icons, logo, fonts, samples) must work under that base path.
+- The app is served at `https://webpmp.github.io/ORPELA/`. Read the base path from an environment variable and set Vite `base` accordingly (`'/ORPELA/'` in production, `'/'` in dev). Manifest `start_url` and `scope`, the service worker scope, and every asset URL (icons, logo, fonts, samples) must work under that base path.
 - Use **hash routing**. GitHub Pages has no SPA rewrite.
 - Manifest: name and short name from `config.ts`, `display: "standalone"`, theme and background colors, icons (192, 512, maskable 512). Include `apple-touch-icon`, `apple-mobile-web-app-capable`, and `apple-mobile-web-app-status-bar-style`.
 - `vite-plugin-pwa` with `registerType: 'prompt'`: a new service worker waits and the UI shows "Update available" with an "Update now" button. Apply only when the user accepts. Never reload during playback.
@@ -651,7 +652,7 @@ Touch: tap the display to play/pause; swipe left/right for previous/next sentenc
 - Install UX: use `beforeinstallprompt` where supported; on iOS show a short "Share, then Add to Home Screen" guide.
 - Handle suspension: save position on `visibilitychange` and `pagehide`; do not rely on background timers, background sync, or push.
 - README note: Safari may clear storage for sites unused for about a week unless installed to the Home Screen. Provide export/import of the whole library as one JSON file (`backup.ts`) as the safeguard.
-- **CI/CD** (`.github/workflows/deploy.yml`): trigger on push to `main` and `workflow_dispatch`; permissions `contents: read`, `pages: write`, `id-token: write`; build job runs `npm ci`, lint, test, `npm run build` with the base path set, then uploads `dist` with the Pages artifact action; deploy job uses the Pages deploy action with environment `github-pages`. Repository setting: Pages source = GitHub Actions. A failing test or build must leave the live site on the last good version.
+- **CI/CD** (`.github/workflows/ci.yml`): trigger on push to `main`, `pull_request` to `main`, and `workflow_dispatch`; permissions `contents: read`, `pages: write`, `id-token: write`; build job installs with `bun install --frozen-lockfile` (using `oven-sh/setup-bun` pinned to the `bun.lock` Bun version), runs `bun run lint`, `bun run test`, and `bun run build` with `VITE_BASE_PATH=/ORPELA/`, then configures and uploads `dist` only on `push` or `workflow_dispatch` on `main`; deploy job uses the Pages deploy action under environment `github-pages` with the same `main`-only condition. Repository setting: Pages source = GitHub Actions. A failing test or build must leave the live site on the last good version.
 
 ## 10. Testing
 
