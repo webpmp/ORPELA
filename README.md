@@ -1,40 +1,44 @@
-# Orpela
+<h1>
+  <img src="public/assets/logo-orpela-transparent.png" alt="Orpela logo" height="72" align="absmiddle">
+  Orpela
+</h1>
 
-**Orpela** is a responsive, installable, offline-capable, local-first Progressive Web App for **sequential word display (SWD)** reading. It displays one word—or a small group of words—at a time in a fixed focal position at a configurable speed.
+Orpela is a free speed reading app that runs in your browser. It shows one word, or a small group of words, at a time in a fixed spot on the screen, at a speed you choose. You can install it on your phone, tablet, or computer, and it keeps working without an internet connection.
 
-## Features
+Try it here: https://webpmp.github.io/ORPELA/
 
-- **Pure TypeScript SWD Engine (`src/engine/`):**
-  - Deterministic tokenizer supporting abbreviations, decimals, URLs, ellipses, em-dashes, and split display fragments for words longer than 14 characters.
-  - Configurable chunking (1 to 4 words per flash) that never crosses sentence boundaries.
-  - Optimal Recognition Point (ORP) alignment with color + underline/bold emphasis (never relying on color alone).
-  - Punctuation-aware cadence (clause, terminal, paragraph, and long-word additions) with `0x`–`2x` strength scaling.
-  - Drift-free `requestAnimationFrame` scheduler using absolute target timestamps (`nextAt += duration`), plus auto-pause on page hide.
-- **Local-First Library & Persistence:**
-  - All documents, reading progress, sessions, and settings live locally in IndexedDB via Dexie.
-  - No accounts, no backend, no analytics, no telemetry.
-  - Full library export/import as a single portable JSON file.
-- **Document Importers:**
-  - **Paste Text** with automatic title detection.
-  - **TXT** with BOM/UTF-8 decoding and hard-wrapped line rejoining.
-  - **PDF** lazy-loaded in a Web Worker using a locally bundled `pdfjs-dist` worker (header/footer cleanup, hyphenation rejoining, scanned PDF detection).
-  - **EPUB** lazy-loaded in a Web Worker using JSZip (spine order, package metadata, TOC chapter labels, DRM detection).
-- **Accessible & Mobile-First:**
-  - Built for desktop, iPad, and iPhone (browser and Home Screen standalone mode) using `100dvh` and `env(safe-area-inset-*)`.
-  - Locally bundled fonts including **OpenDyslexic**, **Plus Jakarta Sans**, **Source Serif 4**, and **JetBrains Mono**.
-  - Plain scrolling text view available anytime from the reader.
+## What it does
 
-## A Note on Speed Reading
+**Reading**
 
-Speed-reading research is mixed: pushing presentation speeds too high often reduces reading comprehension. Optional features such as speed ramp, chunk expansion, and the faded context pane are offered strictly as user-controlled experiments.
+- Choose a speed from 100 to 1,000 words per minute and show 1 to 4 words at a time.
+- The key letter in each word is highlighted and underlined, so the cue never depends on color alone.
+- The pace slows down after commas, periods, and paragraph breaks.
+- Playback pauses on its own when you switch away from the page.
+- A plain scrolling text view is always available if you would rather read normally.
 
-## Safari Storage & Installing to Home Screen
+**Your library**
 
-On iOS and iPadOS Safari, website storage may be cleared by the browser after roughly a week of inactivity unless the app is installed to the Home Screen:
+- Paste text, or import TXT, PDF, and EPUB files.
+- Everything is stored on your device. There are no accounts, no servers, no analytics, and no tracking.
+- Your progress is saved, so you can pick up where you left off.
+- You can export your whole library as one JSON file and import it again later.
 
-1. Open Orpela in **Safari**.
-2. Tap **Share** -> **Add to Home Screen**.
-3. Use **Settings -> Export Library JSON** periodically as a portable backup.
+**Works everywhere**
+
+- Built for desktop, iPad, and iPhone, in the browser or installed to the Home Screen.
+- Includes the OpenDyslexic font for readers who find it easier, along with a few other fonts.
+- Light and dark themes.
+
+## A note on speed reading
+
+Research on speed reading is mixed. Reading very fast often costs you comprehension. Features like speed ramp, growing word groups, and the faded context view are optional experiments, so use whatever works for you.
+
+## Install it on your device
+
+On iPhone or iPad, open the site in Safari, tap Share, then tap Add to Home Screen.
+
+Safari can clear a website's stored data after about a week without use, unless the app is installed to the Home Screen. It is a good idea to back up your library now and then from Settings by using Export Library JSON.
 
 ## Development
 
@@ -46,6 +50,8 @@ bun run test     # Run Vitest suite
 bun run build    # Production build (defaults to /ORPELA/ for GitHub Pages)
 VITE_BASE_PATH=/ORPELA/ bun run preview  # Preview dist/ under /ORPELA/ (defaults to "/" when unset)
 ```
+
+The reading engine lives in `src/engine/` and is plain TypeScript with no framework code. The full build specification is in `docs/BUILD_SPEC.md`.
 
 ## License
 
