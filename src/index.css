@@ -1,0 +1,122 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg-canvas: #f8f9fa;
+  --bg-surface: #ffffff;
+  --bg-subtle: #eef0f3;
+  --border-hairline: #dfe3e8;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --accent-primary: #2563eb;
+  --orp-default: #dc2626;
+  color-scheme: light;
+}
+
+.dark {
+  --bg-canvas: #0b0d10;
+  --bg-surface: #14171c;
+  --bg-subtle: #1c2028;
+  --border-hairline: #262b34;
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --accent-primary: #60a5fa;
+  --orp-default: #f87171;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100dvh;
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-reading-sans {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+.font-reading-serif {
+  font-family: 'Source Serif 4', Georgia, Cambria, serif;
+}
+
+.font-reading-dyslexic {
+  font-family: 'OpenDyslexic', 'Plus Jakarta Sans', sans-serif;
+}
+
+.font-reading-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+.font-reading-system {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-chrome-transition {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+@layer components {
+  /*
+   * CSS crop frame for public/assets/logo-orpela.png (1536x1024) using the visible
+   * mark bounding box measured at near-white threshold > 245:
+   *   x=179, y=267, width=1180, height=487
+   * Trimming the ~26% top/bottom and ~11.6% left/right PNG padding lets the mark's
+   * actual height match h-6 (24px) / md:h-8 (32px) with tight spacing to the wordmark.
+   */
+  .brand-logo-frame {
+    position: relative;
+    overflow: hidden;
+    aspect-ratio: 1180 / 487;
+  }
+
+  /*
+   * Scales and shifts the full PNG inside .brand-logo-frame so only [179,267,1180,487]
+   * is visible (top % resolves against frame height 487; width/left resolve against 1180).
+   * White-background blend workaround:
+   * - Light mode: multiply lets white pixels blend into the light header surface.
+   * - Dark mode (.dark, including system dark): invert(1) turns white to black so
+   *   screen blending hides it against the dark header, and hue-rotate(180deg)
+   *   restores the original blue/cyan hues after inversion.
+   */
+  .brand-logo {
+    position: absolute;
+    max-width: none;
+    width: calc(1536 / 1180 * 100%);
+    height: auto;
+    left: calc(-179 / 1180 * 100%);
+    top: calc(-267 / 487 * 100%);
+    mix-blend-mode: multiply;
+  }
+
+  .dark .brand-logo {
+    filter: invert(1) hue-rotate(180deg);
+    mix-blend-mode: screen;
+  }
+}
