@@ -2,5 +2,7 @@
   "name": "Orpela",
   "description": "A responsive, installable, offline-capable, local-first Progressive Web App for sequential word display (SWD) reading.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
