@@ -9,8 +9,9 @@ interface WelcomeModalProps {
   onTrySample: () => void;
 }
 
-export const WelcomeModal: React.FC<WelcomeModalProps> = ({
-  open,
+type WelcomeModalDialogProps = Omit<WelcomeModalProps, 'open'>;
+
+const WelcomeModalDialog: React.FC<WelcomeModalDialogProps> = ({
   isTryingSample = false,
   onDismiss,
   onTrySample,
@@ -19,13 +20,6 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
   const titleId = useId();
 
   useEffect(() => {
-    if (open) {
-      setStepIndex(0);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -35,9 +29,7 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [open, onDismiss]);
-
-  if (!open) return null;
+  }, [onDismiss]);
 
   const step = WELCOME_STEPS[stepIndex];
   const isFirst = stepIndex === 0;
@@ -53,7 +45,10 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
     >
       <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 sm:p-6 shadow-2xl pb-safe flex flex-col max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2" aria-label={`Step ${stepIndex + 1} of ${WELCOME_STEPS.length}`}>
+          <div
+            className="flex items-center gap-2"
+            aria-label={`Step ${stepIndex + 1} of ${WELCOME_STEPS.length}`}
+          >
             {WELCOME_STEPS.map((s, idx) => (
               <button
                 key={s.id}
@@ -139,5 +134,22 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
         </div>
       </div>
     </div>
+  );
+};
+
+export const WelcomeModal: React.FC<WelcomeModalProps> = ({
+  open,
+  isTryingSample = false,
+  onDismiss,
+  onTrySample,
+}) => {
+  if (!open) return null;
+
+  return (
+    <WelcomeModalDialog
+      isTryingSample={isTryingSample}
+      onDismiss={onDismiss}
+      onTrySample={onTrySample}
+    />
   );
 };
