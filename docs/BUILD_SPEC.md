@@ -590,11 +590,11 @@ interface ImportResult {
 
 ### 8.1 Screens
 
-1. **Library:** list of documents (title, word count, progress %), sort by title or date added, open/resume, delete with confirmation and undo, import button, "Load sample text" action.
+1. **Library:** list of documents (title, word count, progress %), sort by title or date added, open/resume, delete with confirmation and undo, import button, "Load sample text" action, and a skippable 3-step first-run welcome tour (`WelcomeModal`, persisted via `orpela-welcome-seen` in `localStorage`, never overlaid on the reader, with "Try the sample" loading the sample at 1 word and 250 WPM).
 2. **Import:** paste field with title; file picker for TXT, PDF, EPUB.
-3. **Reader:** the main experience.
-4. **Settings:** a sheet inside the reader (bottom sheet on phones, side panel on desktop) plus a global settings page.
-5. **Help/Install:** install instructions (iOS "Share, then Add to Home Screen"), keyboard shortcuts, speed-reading caveat, privacy statement.
+3. **Reader:** the main experience, with tap/keyboard info popovers (`Speed`, `Words per flash`) in bottom controls.
+4. **Settings:** a sheet inside the reader (bottom sheet on phones, side panel on desktop) plus a global settings page. Includes a "How Orpela works" link at the top of the sheet and tap/keyboard info popovers (bottom sheet on phones) for Speed, Words per flash, Highlight letter, Punctuation pause, Speed ramp, Chunk expansion, and Context pane.
+5. **Help/Install:** centralized guidance from `src/content/guidance.ts` ("How to read with Orpela", "Words per flash, explained", "How to practice", "A note on speed reading") plus a "Show the welcome tour again" action above keyboard/touch shortcuts, install instructions (iOS "Share, then Add to Home Screen"), and privacy/backup guidance.
 
 ### 8.2 Reader
 
@@ -602,14 +602,14 @@ interface ImportResult {
 - **Stable text size:** use one font size for all chunks. A chunk too wide for the stage is shrunk with `transform: scale(...)` (which does not affect layout), clamped to a sensible minimum, never by changing the font size per chunk. Preferably compute one scale per session from the longest chunk at the current words-per-flash setting. Words with and without descenders must sit on the same baseline.
 - 1-word layout: the ORP letter sits on the center axis. Multi-word layout: see 5.5. Both live in the same fixed-height stage, so changing words per flash never moves the frame.
 - Adjustable font size, weight, family (include an optional dyslexia-friendly font that is bundled locally), reading width, colors.
-- Controls: play/pause, restart, previous/next sentence, previous/next paragraph, scrubbable progress bar, time remaining, WPM +/-, words-per-flash selector, settings.
+- Controls: play/pause, restart, previous/next sentence, previous/next paragraph, scrubbable progress bar, time remaining, WPM +/-, words-per-flash selector, settings. Opening any info popover pauses playback if playing and overlays the layout without shifting the focal stage.
 - **Auto-hide during playback:** after the countdown ends, fade out the app header, the reader toolbar and the bottom controls after about 2 seconds with no pointer, touch or key activity. Show them again on tap, pointer movement, key press or pause. While paused they stay visible. On the reader route these bars overlay the content (fixed or absolute) so they never change the layout, and the focal stage never moves. Hidden bars have `pointer-events: none` and are not focusable (`inert`), and any key press reveals them for keyboard users. With `prefers-reduced-motion`, show and hide instantly. While the chrome is hidden during playback, one tap pauses and shows the controls.
 - Reserve space for anything that mounts during playback (countdown text, notices, status line) so nothing shifts the stage.
 - Optional faded context pane showing surrounding text; hidden by default on phones. Turning it off discourages regressions.
 - Configurable countdown before playback starts (0 to 5 seconds).
 - A plain scrolling text view of the document (simple, non-SWD) is available from the reader so no one is blocked by the format.
 - Keep the screen awake while playing using the Screen Wake Lock API; release on pause; degrade silently where unsupported.
-- First-session comfort notice: rapidly changing text may be uncomfortable for some people; offer a max-WPM cap.
+- First-session comfort notice: rapidly changing text may be uncomfortable for some people; offer a max-WPM cap. Do not show on the same visit as the welcome tour; show once on a subsequent visit after the welcome tour has been seen.
 - **Leaving the reader** by any route (header logo, nav links, mobile menu, Esc, browser back, phone back gesture) must pause playback, save progress immediately, end the active session, release the wake lock, and then navigate.
 
 ### 8.3 Input

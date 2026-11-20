@@ -10,6 +10,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import React from 'react';
+import {InfoPopoverButton} from '../../components/InfoPopoverButton';
 import type {ChunkSize} from '../../engine/chunker';
 import type {ProgressStats} from '../../engine/navigation';
 import {TIMING_CONSTANTS} from '../../engine/timing';
@@ -31,6 +32,7 @@ interface ReaderControlsProps {
   onSeekPercentage: (pct: number) => void;
   onAdjustWpm: (delta: number) => void;
   onChunkSizeChange: (size: ChunkSize) => void;
+  onPauseForInfo?: () => void;
 }
 
 function formatRemaining(seconds: number): string {
@@ -59,6 +61,7 @@ export const ReaderControls: React.FC<ReaderControlsProps> = ({
   onSeekPercentage,
   onAdjustWpm,
   onChunkSizeChange,
+  onPauseForInfo,
 }) => {
   const hiddenDuringPlay = !visible && isPlaying && !isPlainView;
 
@@ -163,52 +166,58 @@ export const ReaderControls: React.FC<ReaderControlsProps> = ({
               </div>
 
               {/* Speed & Chunk Controls */}
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 {/* WPM +/- */}
-                <div className="inline-flex items-center rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)]">
-                  <button
-                    type="button"
-                    onClick={() => onAdjustWpm(-TIMING_CONSTANTS.WPM_STEP)}
-                    aria-label="Decrease speed by 25 words per minute"
-                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-l-xl text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
-                  >
-                    <Minus className="h-4 w-4" />
-                  </button>
-                  <span className="px-2 text-xs sm:text-sm font-semibold tabular-nums text-[var(--text-primary)] whitespace-nowrap">
-                    {wpm} WPM
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onAdjustWpm(TIMING_CONSTANTS.WPM_STEP)}
-                    aria-label="Increase speed by 25 words per minute"
-                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-r-xl text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
+                <div className="inline-flex items-center gap-1">
+                  <div className="inline-flex items-center rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)]">
+                    <button
+                      type="button"
+                      onClick={() => onAdjustWpm(-TIMING_CONSTANTS.WPM_STEP)}
+                      aria-label="Decrease speed by 25 words per minute"
+                      className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-l-xl text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </button>
+                    <span className="px-2 text-xs sm:text-sm font-semibold tabular-nums text-[var(--text-primary)] whitespace-nowrap">
+                      {wpm} WPM
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onAdjustWpm(TIMING_CONSTANTS.WPM_STEP)}
+                      aria-label="Increase speed by 25 words per minute"
+                      className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-r-xl text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <InfoPopoverButton topicId="speed" onBeforeOpen={onPauseForInfo} />
                 </div>
 
                 {/* Words per flash selector */}
-                <div
-                  role="group"
-                  aria-label="Words per flash"
-                  className="inline-flex items-center rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)] p-0.5"
-                >
-                  {([1, 2, 3, 4] as ChunkSize[]).map((size) => (
-                    <button
-                      key={size}
-                      type="button"
-                      onClick={() => onChunkSizeChange(size)}
-                      aria-pressed={chunkSize === size}
-                      aria-label={`${size} ${size === 1 ? 'word' : 'words'} per flash`}
-                      className={`min-h-[40px] min-w-[36px] rounded-lg px-2 text-xs font-semibold tabular-nums transition-colors ${
-                        chunkSize === size
-                          ? 'bg-[var(--text-primary)] text-[var(--bg-canvas)]'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      {size}w
-                    </button>
-                  ))}
+                <div className="inline-flex items-center gap-1">
+                  <div
+                    role="group"
+                    aria-label="Words per flash"
+                    className="inline-flex items-center rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)] p-0.5"
+                  >
+                    {([1, 2, 3, 4] as ChunkSize[]).map((size) => (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => onChunkSizeChange(size)}
+                        aria-pressed={chunkSize === size}
+                        aria-label={`${size} ${size === 1 ? 'word' : 'words'} per flash`}
+                        className={`min-h-[40px] min-w-[36px] rounded-lg px-2 text-xs font-semibold tabular-nums transition-colors ${
+                          chunkSize === size
+                            ? 'bg-[var(--text-primary)] text-[var(--bg-canvas)]'
+                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        {size}w
+                      </button>
+                    ))}
+                  </div>
+                  <InfoPopoverButton topicId="wordsPerFlash" onBeforeOpen={onPauseForInfo} />
                 </div>
               </div>
         </div>

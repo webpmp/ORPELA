@@ -1,5 +1,7 @@
 import {BookOpen, FilePlus2, Play, Trash2} from 'lucide-react';
-import React, {useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
+import {WelcomeModal} from '../../components/WelcomeModal';
+import {WELCOME_SEEN_KEY} from '../../content/guidance';
 import {useAppContext} from '../../context/AppContext';
 import {SAMPLE_PASSAGES, type SamplePassage} from '../../services/samples';
 import {computeAggregateStats} from '../../services/sessions';
@@ -26,13 +28,66 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
     documents,
     sessions,
     loadSamplePassage,
+    updateSettings,
     deleteDocumentWithUndo,
     showToast,
+    welcomeReopenRequested,
+    markWelcomeShownThisVisit,
+    consumeWelcomeReopenRequest,
   } = useAppContext();
 
   const [sortBy, setSortBy] = useState<SortKey>('recent');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [loadingSampleId, setLoadingSampleId] = useState<string | null>(null);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [tryingWelcomeSample, setTryingWelcomeSample] = useState(false);
+
+  useEffect(() => {
+    if (!isReady) return;
+    let shouldOpen = welcomeReopenRequested;
+    if (!shouldOpen) {
+      try {
+        shouldOpen = localStorage.getItem(WELCOME_SEEN_KEY) !== '1';
+      } catch {
+        shouldOpen = false;
+      }
+    }
+    if (shouldOpen) {
+      setWelcomeOpen(true);
+      markWelcomeShownThisVisit();
+    }
+    if (welcomeReopenRequested) {
+      consumeWelcomeReopenRequest();
+    }
+  }, [isReady, welcomeReopenRequested, markWelcomeShownThisVisit, consumeWelcomeReopenRequest]);
+
+  const markWelcomeSeen = () => {
+    try {
+      localStorage.setItem(WELCOME_SEEN_KEY, '1');
+    } catch {
+      // Ignore storage failure
+    }
+  };
+
+  const handleDismissWelcome = () => {
+    markWelcomeSeen();
+    setWelcomeOpen(false);
+  };
+
+  const handleTrySampleFromWelcome = async () => {
+    setTryingWelcomeSample(true);
+    try {
+      markWelcomeSeen();
+      const doc = await loadSamplePassage(SAMPLE_PASSAGES[0]);
+      await updateSettings({wordsPerFlash: 1, wpm: 250});
+      setWelcomeOpen(false);
+      onNavigate(`/read/${encodeURIComponent(doc.id)}`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to load sample text.');
+    } finally {
+      setTryingWelcomeSample(false);
+    }
+  };
 
   const stats = useMemo(() => computeAggregateStats(sessions), [sessions]);
 
@@ -293,6 +348,13 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
           })}
         </section>
       )}
+
+      <WelcomeModal
+        open={welcomeOpen}
+        isTryingSample={tryingWelcomeSample}
+        onDismiss={handleDismissWelcome}
+        onTrySample={() => void handleTrySampleFromWelcome()}
+      />
     </div>
   );
 };

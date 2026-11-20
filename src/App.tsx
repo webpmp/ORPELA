@@ -20,7 +20,7 @@ export default function App() {
           {route.name === 'library' && <LibraryScreen onNavigate={navigate} />}
           {route.name === 'import' && <ImportScreen onNavigate={navigate} />}
           {route.name === 'settings' && <SettingsScreen />}
-          {route.name === 'help' && <HelpScreen />}
+          {route.name === 'help' && <HelpScreen section={route.section} onNavigate={navigate} />}
           {route.name === 'read' && (
             <ReaderScreen documentId={route.documentId} onNavigate={navigate} />
           )}

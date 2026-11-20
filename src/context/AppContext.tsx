@@ -1,4 +1,5 @@
-import React, {createContext, useCallback, useContext, useEffect, useState} from 'react';
+import React, {createContext, useCallback, useContext, useEffect, useRef, useState} from 'react';
+import {WELCOME_SEEN_KEY} from '../content/guidance';
 import {tokenize} from '../engine/tokenizer';
 import {SAMPLE_PASSAGES, loadSampleImportResult, type SamplePassage} from '../services/samples';
 import {listAllSessions} from '../services/sessions';
@@ -35,6 +36,11 @@ interface AppContextValue {
   isPlaybackActive: boolean;
   toastMessage: string | null;
   undoPayload: UndoDeleteState | null;
+  welcomeShownThisVisit: boolean;
+  welcomeReopenRequested: boolean;
+  markWelcomeShownThisVisit: () => void;
+  requestReopenWelcome: () => void;
+  consumeWelcomeReopenRequest: () => void;
   setIsPlaybackActive: (active: boolean) => void;
   updateSettings: (patch: Partial<ReaderSettings>) => Promise<void>;
   resetSettings: () => Promise<void>;
@@ -74,11 +80,14 @@ function applyThemeToDom(theme: ReaderSettings['theme']): void {
 export const AppProvider: React.FC<{children: React.ReactNode}> = ({children}) => {
   const [isReady, setIsReady] = useState(false);
   const [settings, setSettings] = useState<ReaderSettings>(DEFAULT_READER_SETTINGS);
+  const settingsRef = useRef<ReaderSettings>(DEFAULT_READER_SETTINGS);
   const [documents, setDocuments] = useState<DocumentWithProgress[]>([]);
   const [sessions, setSessions] = useState<ReadingSession[]>([]);
   const [isPlaybackActive, setIsPlaybackActive] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [undoPayload, setUndoPayload] = useState<UndoDeleteState | null>(null);
+  const [welcomeShownThisVisit, setWelcomeShownThisVisit] = useState(false);
+  const [welcomeReopenRequested, setWelcomeReopenRequested] = useState(false);
 
   const refreshLibrary = useCallback(async () => {
     const [docs, sess] = await Promise.all([
@@ -99,6 +108,7 @@ export const AppProvider: React.FC<{children: React.ReactNode}> = ({children}) =
           listAllSessions(),
         ]);
         if (!active) return;
+        settingsRef.current = loadedSettings;
         setSettings(loadedSettings);
         applyThemeToDom(loadedSettings.theme);
         setDocuments(docs);
@@ -129,28 +139,45 @@ export const AppProvider: React.FC<{children: React.ReactNode}> = ({children}) =
     setToastMessage(null);
   }, []);
 
-  const updateSettings = useCallback(
-    async (patch: Partial<ReaderSettings>) => {
-      setSettings((prev) => {
-        const next: ReaderSettings = {
-          ...prev,
-          ...patch,
-          speedRamp: patch.speedRamp ? {...prev.speedRamp, ...patch.speedRamp} : prev.speedRamp,
-          chunkExpansion: patch.chunkExpansion
-            ? {...prev.chunkExpansion, ...patch.chunkExpansion}
-            : prev.chunkExpansion,
-        };
-        void saveGlobalSettings(next).catch((err) => {
-          setToastMessage(err instanceof Error ? err.message : 'Unable to save settings.');
-        });
-        return next;
-      });
-    },
-    []
-  );
+  const markWelcomeShownThisVisit = useCallback(() => {
+    setWelcomeShownThisVisit(true);
+  }, []);
+
+  const requestReopenWelcome = useCallback(() => {
+    try {
+      localStorage.removeItem(WELCOME_SEEN_KEY);
+    } catch {
+      // Ignore storage failure
+    }
+    setWelcomeReopenRequested(true);
+  }, []);
+
+  const consumeWelcomeReopenRequest = useCallback(() => {
+    setWelcomeReopenRequested(false);
+  }, []);
+
+  const updateSettings = useCallback(async (patch: Partial<ReaderSettings>) => {
+    const prev = settingsRef.current;
+    const next: ReaderSettings = {
+      ...prev,
+      ...patch,
+      speedRamp: patch.speedRamp ? {...prev.speedRamp, ...patch.speedRamp} : prev.speedRamp,
+      chunkExpansion: patch.chunkExpansion
+        ? {...prev.chunkExpansion, ...patch.chunkExpansion}
+        : prev.chunkExpansion,
+    };
+    settingsRef.current = next;
+    setSettings(next);
+    try {
+      await saveGlobalSettings(next);
+    } catch (err) {
+      setToastMessage(err instanceof Error ? err.message : 'Unable to save settings.');
+    }
+  }, []);
 
   const resetSettings = useCallback(async () => {
     const next = {...DEFAULT_READER_SETTINGS};
+    settingsRef.current = next;
     setSettings(next);
     await saveGlobalSettings(next);
     setToastMessage('Reader settings reset to defaults.');
@@ -211,6 +238,11 @@ export const AppProvider: React.FC<{children: React.ReactNode}> = ({children}) =
         isPlaybackActive,
         toastMessage,
         undoPayload,
+        welcomeShownThisVisit,
+        welcomeReopenRequested,
+        markWelcomeShownThisVisit,
+        requestReopenWelcome,
+        consumeWelcomeReopenRequest,
         setIsPlaybackActive,
         updateSettings,
         resetSettings,

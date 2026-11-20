@@ -1,5 +1,6 @@
 import {AlertCircle, X} from 'lucide-react';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {WELCOME_SEEN_KEY} from '../../content/guidance';
 import {useAppContext} from '../../context/AppContext';
 import {useReaderChrome} from '../../context/ReaderChromeContext';
 import {useResponsiveLayout} from '../../hooks/useResponsiveLayout';
@@ -20,8 +21,14 @@ export const READER_AUTO_HIDE_DELAY_MS = 2000;
 const COMFORT_NOTICE_KEY = 'orpela-comfort-notice-seen';
 
 export const ReaderScreen: React.FC<ReaderScreenProps> = ({documentId, onNavigate}) => {
-  const {settings, updateSettings, setIsPlaybackActive, refreshLibrary, showToast} =
-    useAppContext();
+  const {
+    settings,
+    welcomeShownThisVisit,
+    updateSettings,
+    setIsPlaybackActive,
+    refreshLibrary,
+    showToast,
+  } = useAppContext();
   const {isPhone} = useResponsiveLayout();
 
   const [loadedRecord, setLoadedRecord] = useState<{
@@ -97,11 +104,13 @@ export const ReaderScreen: React.FC<ReaderScreenProps> = ({documentId, onNavigat
       }
       settings={settings}
       isPhone={isPhone}
+      welcomeShownThisVisit={welcomeShownThisVisit}
       onUpdateSettings={updateSettings}
       onPlaybackChange={setIsPlaybackActive}
       onRefreshLibrary={refreshLibrary}
       onStorageError={showToast}
       onExit={() => onNavigate('/')}
+      onOpenGuidance={() => onNavigate('/help/guidance')}
     />
   );
 };
@@ -113,11 +122,13 @@ interface ActiveReaderSessionProps {
   savedTokenizerVersion: number;
   settings: ReturnType<typeof useAppContext>['settings'];
   isPhone: boolean;
+  welcomeShownThisVisit: boolean;
   onUpdateSettings: ReturnType<typeof useAppContext>['updateSettings'];
   onPlaybackChange: (playing: boolean) => void;
   onRefreshLibrary: () => Promise<void>;
   onStorageError: (msg: string) => void;
   onExit: () => void;
+  onOpenGuidance: () => void;
 }
 
 const ActiveReaderSession: React.FC<ActiveReaderSessionProps> = ({
@@ -127,11 +138,13 @@ const ActiveReaderSession: React.FC<ActiveReaderSessionProps> = ({
   savedTokenizerVersion,
   settings,
   isPhone,
+  welcomeShownThisVisit,
   onUpdateSettings,
   onPlaybackChange,
   onRefreshLibrary,
   onStorageError,
   onExit,
+  onOpenGuidance,
 }) => {
   const {setToolbar, setChromeHidden, registerExitGuard, registerPauseForMenu} =
     useReaderChrome();
@@ -140,7 +153,9 @@ const ActiveReaderSession: React.FC<ActiveReaderSessionProps> = ({
   const [isPlainView, setIsPlainView] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [showComfortNotice, setShowComfortNotice] = useState(() => {
+    if (welcomeShownThisVisit) return false;
     try {
+      if (localStorage.getItem(WELCOME_SEEN_KEY) !== '1') return false;
       return localStorage.getItem(COMFORT_NOTICE_KEY) !== '1';
     } catch {
       return false;
@@ -250,6 +265,13 @@ const ActiveReaderSession: React.FC<ActiveReaderSessionProps> = ({
           target.tagName === 'TEXTAREA' ||
           target.tagName === 'SELECT')
       ) {
+        if (e.key === 'Escape' && isSettingsOpen) {
+          setIsSettingsOpen(false);
+        }
+        return;
+      }
+
+      if (window.document.querySelector('[role="dialog"][aria-modal="true"]')) {
         if (e.key === 'Escape' && isSettingsOpen) {
           setIsSettingsOpen(false);
         }
@@ -412,6 +434,7 @@ const ActiveReaderSession: React.FC<ActiveReaderSessionProps> = ({
         onSeekPercentage={reader.seekPercentage}
         onAdjustWpm={reader.adjustWpm}
         onChunkSizeChange={reader.setChunkSize}
+        onPauseForInfo={reader.pause}
       />
 
       <ReaderSettingsSheet
@@ -419,6 +442,11 @@ const ActiveReaderSession: React.FC<ActiveReaderSessionProps> = ({
         settings={settings}
         onClose={() => setIsSettingsOpen(false)}
         onUpdateSettings={onUpdateSettings}
+        onPauseForInfo={reader.pause}
+        onOpenGuidance={() => {
+          setIsSettingsOpen(false);
+          void reader.flushAndPauseForExit().then(() => onOpenGuidance());
+        }}
       />
     </div>
   );

@@ -5,7 +5,7 @@ export type AppRoute =
   | {name: 'import'}
   | {name: 'read'; documentId: string}
   | {name: 'settings'}
-  | {name: 'help'};
+  | {name: 'help'; section?: string};
 
 function parseHash(hash: string): AppRoute {
   const cleaned = hash.replace(/^#\/?/, '').trim();
@@ -15,7 +15,7 @@ function parseHash(hash: string): AppRoute {
   const parts = cleaned.split('/').filter(Boolean);
   if (parts[0] === 'import') return {name: 'import'};
   if (parts[0] === 'settings') return {name: 'settings'};
-  if (parts[0] === 'help') return {name: 'help'};
+  if (parts[0] === 'help') return {name: 'help', section: parts[1]};
   if (parts[0] === 'read' && parts[1]) {
     return {name: 'read', documentId: decodeURIComponent(parts[1])};
   }

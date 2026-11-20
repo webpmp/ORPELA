@@ -1,5 +1,7 @@
-import {X} from 'lucide-react';
+import {HelpCircle, X} from 'lucide-react';
 import React from 'react';
+import {InfoPopoverButton} from '../../components/InfoPopoverButton';
+import {WELCOME_CONTROLS} from '../../content/guidance';
 import type {ChunkSize} from '../../engine/chunker';
 import {TIMING_CONSTANTS} from '../../engine/timing';
 import type {FontFamilyOption, ReaderSettings} from '../../types';
@@ -9,6 +11,8 @@ interface ReaderSettingsSheetProps {
   settings: ReaderSettings;
   onClose: () => void;
   onUpdateSettings: (patch: Partial<ReaderSettings>) => Promise<void>;
+  onOpenGuidance?: () => void;
+  onPauseForInfo?: () => void;
 }
 
 const ORP_COLORS = [
@@ -32,6 +36,8 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
   settings,
   onClose,
   onUpdateSettings,
+  onOpenGuidance,
+  onPauseForInfo,
 }) => {
   if (!open) return null;
 
@@ -67,6 +73,24 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-7 text-sm">
+          {onOpenGuidance && (
+            <div className="pb-2 border-b border-[var(--border-hairline)]">
+              <button
+                type="button"
+                onClick={onOpenGuidance}
+                className="min-h-[44px] w-full flex items-center justify-between gap-3 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3.5 py-2 text-sm font-medium text-[var(--accent-primary)] hover:bg-[var(--bg-subtle)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <HelpCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>{WELCOME_CONTROLS.howOrpelaWorks}</span>
+                </span>
+                <span aria-hidden="true" className="text-xs text-[var(--text-secondary)]">
+                  Help
+                </span>
+              </button>
+            </div>
+          )}
+
           {/* Speed & Chunking */}
           <section className="space-y-4">
             <h3 className="text-xs font-semibold tracking-wide text-[var(--text-secondary)]">
@@ -74,10 +98,13 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
             </h3>
 
             <div>
-              <div className="flex justify-between mb-1.5">
-                <label htmlFor="setting-wpm" className="font-medium">
-                  Reading speed
-                </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <div className="flex items-center gap-1">
+                  <label htmlFor="setting-wpm" className="font-medium">
+                    Reading speed
+                  </label>
+                  <InfoPopoverButton topicId="speed" onBeforeOpen={onPauseForInfo} />
+                </div>
                 <span className="tabular-nums text-[var(--text-secondary)]">
                   {settings.wpm} WPM
                 </span>
@@ -95,7 +122,10 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
             </div>
 
             <div>
-              <div className="mb-1.5 font-medium">Words per flash</div>
+              <div className="flex items-center gap-1 mb-1.5">
+                <span className="font-medium">Words per flash</span>
+                <InfoPopoverButton topicId="wordsPerFlash" onBeforeOpen={onPauseForInfo} />
+              </div>
               <div className="grid grid-cols-4 gap-2">
                 {([1, 2, 3, 4] as ChunkSize[]).map((size) => (
                   <button
@@ -115,10 +145,13 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
             </div>
 
             <div>
-              <div className="flex justify-between mb-1.5">
-                <label htmlFor="setting-pause-strength" className="font-medium">
-                  Punctuation pause strength
-                </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <div className="flex items-center gap-1">
+                  <label htmlFor="setting-pause-strength" className="font-medium">
+                    Punctuation pause strength
+                  </label>
+                  <InfoPopoverButton topicId="punctuationPause" onBeforeOpen={onPauseForInfo} />
+                </div>
                 <span className="tabular-nums text-[var(--text-secondary)]">
                   {settings.punctuationPauseStrength.toFixed(1)}x
                 </span>
@@ -203,15 +236,21 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
               Display &amp; Typography
             </h3>
 
-            <label className="flex min-h-[44px] items-center justify-between gap-3 cursor-pointer">
-              <span className="font-medium">Highlight focal ORP character</span>
+            <div className="flex min-h-[44px] items-center justify-between gap-3">
+              <div className="flex items-center gap-1">
+                <label htmlFor="setting-orp-enabled" className="font-medium cursor-pointer">
+                  Highlight focal ORP character
+                </label>
+                <InfoPopoverButton topicId="highlightLetter" onBeforeOpen={onPauseForInfo} />
+              </div>
               <input
+                id="setting-orp-enabled"
                 type="checkbox"
                 checked={settings.orpEnabled}
                 onChange={(e) => void onUpdateSettings({orpEnabled: e.target.checked})}
                 className="h-5 w-5 accent-[var(--accent-primary)]"
               />
-            </label>
+            </div>
 
             {settings.orpEnabled && (
               <div>
@@ -356,9 +395,15 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
               </p>
             </div>
 
-            <label className="flex min-h-[44px] items-center justify-between gap-3 cursor-pointer">
-              <span className="font-medium">Faded surrounding context pane</span>
+            <div className="flex min-h-[44px] items-center justify-between gap-3">
+              <div className="flex items-center gap-1">
+                <label htmlFor="setting-context-pane" className="font-medium cursor-pointer">
+                  Faded surrounding context pane
+                </label>
+                <InfoPopoverButton topicId="contextPane" onBeforeOpen={onPauseForInfo} />
+              </div>
               <input
+                id="setting-context-pane"
                 type="checkbox"
                 checked={settings.contextPane === 'faded'}
                 onChange={(e) =>
@@ -366,11 +411,17 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
                 }
                 className="h-5 w-5 accent-[var(--accent-primary)]"
               />
-            </label>
+            </div>
 
-            <label className="flex min-h-[44px] items-center justify-between gap-3 cursor-pointer">
-              <span className="font-medium">Gradual speed ramp (+25 WPM / 30s)</span>
+            <div className="flex min-h-[44px] items-center justify-between gap-3">
+              <div className="flex items-center gap-1">
+                <label htmlFor="setting-speed-ramp" className="font-medium cursor-pointer">
+                  Gradual speed ramp (+25 WPM / 30s)
+                </label>
+                <InfoPopoverButton topicId="speedRamp" onBeforeOpen={onPauseForInfo} />
+              </div>
               <input
+                id="setting-speed-ramp"
                 type="checkbox"
                 checked={settings.speedRamp.enabled}
                 onChange={(e) =>
@@ -380,11 +431,17 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
                 }
                 className="h-5 w-5 accent-[var(--accent-primary)]"
               />
-            </label>
+            </div>
 
-            <label className="flex min-h-[44px] items-center justify-between gap-3 cursor-pointer">
-              <span className="font-medium">Gradual chunk expansion (1 to 4 words)</span>
+            <div className="flex min-h-[44px] items-center justify-between gap-3">
+              <div className="flex items-center gap-1">
+                <label htmlFor="setting-chunk-expansion" className="font-medium cursor-pointer">
+                  Gradual chunk expansion (1 to 4 words)
+                </label>
+                <InfoPopoverButton topicId="chunkExpansion" onBeforeOpen={onPauseForInfo} />
+              </div>
               <input
+                id="setting-chunk-expansion"
                 type="checkbox"
                 checked={settings.chunkExpansion.enabled}
                 onChange={(e) =>
@@ -394,7 +451,7 @@ export const ReaderSettingsSheet: React.FC<ReaderSettingsSheetProps> = ({
                 }
                 className="h-5 w-5 accent-[var(--accent-primary)]"
               />
-            </label>
+            </div>
           </section>
         </div>
       </div>
