@@ -1,9 +1,14 @@
 import React, {createContext, useCallback, useContext, useEffect, useRef, useState} from 'react';
 import {WELCOME_SEEN_KEY} from '../content/guidance';
 import {tokenize} from '../engine/tokenizer';
-import {SAMPLE_PASSAGES, loadSampleImportResult, type SamplePassage} from '../services/samples';
+import {
+  SAMPLE_PASSAGES,
+  loadCatalogExcerptImportResult,
+  loadSampleImportResult,
+  type SamplePassage,
+} from '../services/samples';
 import {listAllSessions} from '../services/sessions';
-import {DEFAULT_READER_SETTINGS} from '../services/storage/db';
+import {DEFAULT_READER_SETTINGS, db} from '../services/storage/db';
 import {
   deleteDocumentBundle,
   listDocumentsWithProgress,
@@ -50,6 +55,7 @@ interface AppContextValue {
     sourceMeta?: {fileName?: string; url?: string}
   ) => Promise<{document: LibraryDocument; duplicate: boolean}>;
   loadSamplePassage: (sample?: SamplePassage) => Promise<LibraryDocument>;
+  openPublicDomainExcerpt: (excerptId: string) => Promise<LibraryDocument>;
   deleteDocumentWithUndo: (documentId: string) => Promise<void>;
   undoLastDelete: () => Promise<void>;
   dismissUndo: () => void;
@@ -102,12 +108,49 @@ export const AppProvider: React.FC<{children: React.ReactNode}> = ({children}) =
     let active = true;
     void (async () => {
       try {
-        const [loadedSettings, docs, sess] = await Promise.all([
+        const [loadedSettings, rawDocs, sess] = await Promise.all([
           loadGlobalSettings(),
           listDocumentsWithProgress(),
           listAllSessions(),
         ]);
         if (!active) return;
+
+        // Backfill Description metadata on any previously saved default sample documents
+        const docs = await Promise.all(
+          rawDocs.map(async (entry) => {
+            if (entry.document.description && entry.document.excerptId) {
+              return entry;
+            }
+            const matchedSample = SAMPLE_PASSAGES.find(
+              (sample) =>
+                entry.document.sourceMeta?.fileName === sample.filePath ||
+                entry.document.title === sample.title
+            );
+            if (!matchedSample) {
+              return entry;
+            }
+            const updatedDoc: LibraryDocument = {
+              ...entry.document,
+              description: entry.document.description ?? matchedSample.description,
+              bookId: entry.document.bookId ?? matchedSample.bookId,
+              bookTitle: entry.document.bookTitle ?? matchedSample.bookTitle,
+              excerptId: entry.document.excerptId ?? matchedSample.id,
+              publicationYear: entry.document.publicationYear ?? matchedSample.publicationYear,
+              sourceAttribution:
+                entry.document.sourceAttribution ?? matchedSample.sourceAttribution,
+              publicDomainStatus:
+                entry.document.publicDomainStatus ?? matchedSample.publicDomainStatus,
+            };
+            try {
+              await db.documents.put(updatedDoc);
+            } catch {
+              // Ignore write failure on metadata backfill
+            }
+            return {...entry, document: updatedDoc};
+          })
+        );
+        if (!active) return;
+
         settingsRef.current = loadedSettings;
         setSettings(loadedSettings);
         applyThemeToDom(loadedSettings.theme);
@@ -205,6 +248,19 @@ export const AppProvider: React.FC<{children: React.ReactNode}> = ({children}) =
     [saveImportToLibrary]
   );
 
+  const openPublicDomainExcerpt = useCallback(
+    async (excerptId: string) => {
+      const imported = await loadCatalogExcerptImportResult(excerptId);
+      const fileName =
+        excerptId === SAMPLE_PASSAGES[0].id
+          ? SAMPLE_PASSAGES[0].filePath
+          : `public-domain/${imported.bookId ?? 'collection'}/${excerptId}.txt`;
+      const {document} = await saveImportToLibrary(imported, {fileName});
+      return document;
+    },
+    [saveImportToLibrary]
+  );
+
   const deleteDocumentWithUndo = useCallback(
     async (documentId: string) => {
       const snapshot = await deleteDocumentBundle(documentId);
@@ -249,6 +305,7 @@ export const AppProvider: React.FC<{children: React.ReactNode}> = ({children}) =
         refreshLibrary,
         saveImportToLibrary,
         loadSamplePassage,
+        openPublicDomainExcerpt,
         deleteDocumentWithUndo,
         undoLastDelete,
         dismissUndo,

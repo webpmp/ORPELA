@@ -140,6 +140,25 @@ export async function saveImportedDocument(
   const contentHash = await computeContentHash(imported.text);
   const existing = await database.documents.where('contentHash').equals(contentHash).first();
   if (existing) {
+    const needsMetaBackfill =
+      (!existing.description && imported.description) ||
+      (!existing.excerptId && imported.excerptId) ||
+      (!existing.bookId && imported.bookId);
+    if (needsMetaBackfill) {
+      const updated: LibraryDocument = {
+        ...existing,
+        description: existing.description ?? imported.description,
+        bookId: existing.bookId ?? imported.bookId,
+        bookTitle: existing.bookTitle ?? imported.bookTitle,
+        excerptId: existing.excerptId ?? imported.excerptId,
+        publicationYear: existing.publicationYear ?? imported.publicationYear,
+        sourceAttribution: existing.sourceAttribution ?? imported.sourceAttribution,
+        publicDomainStatus: existing.publicDomainStatus ?? imported.publicDomainStatus,
+        updatedAt: new Date().toISOString(),
+      };
+      await database.documents.put(updated);
+      return {document: updated, duplicate: true};
+    }
     return {document: existing, duplicate: true};
   }
 
@@ -148,6 +167,13 @@ export async function saveImportedDocument(
     id: generateId(),
     title: imported.title.trim() || 'Untitled',
     author: imported.author?.trim() || undefined,
+    description: imported.description,
+    bookId: imported.bookId,
+    bookTitle: imported.bookTitle,
+    excerptId: imported.excerptId,
+    publicationYear: imported.publicationYear,
+    sourceAttribution: imported.sourceAttribution,
+    publicDomainStatus: imported.publicDomainStatus,
     source: imported.source,
     sourceMeta,
     totalWords,

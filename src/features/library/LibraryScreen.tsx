@@ -1,16 +1,64 @@
-import {BookOpen, FilePlus2, Play, Trash2} from 'lucide-react';
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  FilePlus2,
+  Play,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
 import React, {useEffect, useMemo, useState} from 'react';
 import {WelcomeModal} from '../../components/WelcomeModal';
 import {WELCOME_SEEN_KEY} from '../../content/guidance';
+import {
+  PUBLIC_DOMAIN_BOOKS,
+  PUBLIC_DOMAIN_EXCERPTS,
+  type BookCoverTone,
+  type PublicDomainBook,
+  type PublicDomainExcerpt,
+} from '../../content/publicDomainCatalog';
 import {useAppContext} from '../../context/AppContext';
 import {SAMPLE_PASSAGES, type SamplePassage} from '../../services/samples';
 import {computeAggregateStats} from '../../services/sessions';
+import {
+  READING_DESCRIPTIONS,
+  type DocumentWithProgress,
+  type ReadingDescription,
+} from '../../types';
 
 interface LibraryScreenProps {
   onNavigate: (path: string) => void;
 }
 
 type SortKey = 'recent' | 'title';
+type DescriptionFilter = 'all' | ReadingDescription;
+
+const COVER_TONE_CLASSES: Record<BookCoverTone, string> = {
+  slate: 'bg-slate-500/12 text-slate-700 dark:text-slate-300 border-slate-500/20',
+  amber: 'bg-amber-500/12 text-amber-800 dark:text-amber-300 border-amber-500/25',
+  rose: 'bg-rose-500/12 text-rose-800 dark:text-rose-300 border-rose-500/25',
+  emerald: 'bg-emerald-500/12 text-emerald-800 dark:text-emerald-300 border-emerald-500/25',
+  indigo: 'bg-indigo-500/12 text-indigo-800 dark:text-indigo-300 border-indigo-500/25',
+  red: 'bg-red-500/12 text-red-800 dark:text-red-300 border-red-500/25',
+  teal: 'bg-teal-500/12 text-teal-800 dark:text-teal-300 border-teal-500/25',
+  sky: 'bg-sky-500/12 text-sky-800 dark:text-sky-300 border-sky-500/25',
+  purple: 'bg-purple-500/12 text-purple-800 dark:text-purple-300 border-purple-500/25',
+  violet: 'bg-violet-500/12 text-violet-800 dark:text-violet-300 border-violet-500/25',
+  stone: 'bg-stone-500/12 text-stone-700 dark:text-stone-300 border-stone-500/25',
+  blue: 'bg-blue-500/12 text-blue-800 dark:text-blue-300 border-blue-500/25',
+};
+
+const DESCRIPTION_BADGE_CLASSES: Record<ReadingDescription, string> = {
+  Accessible:
+    'border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300',
+  Intermediate:
+    'border-sky-500/25 bg-sky-500/10 text-sky-800 dark:text-sky-300',
+  Advanced:
+    'border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-300',
+  Expert:
+    'border-rose-500/25 bg-rose-500/10 text-rose-800 dark:text-rose-300',
+};
 
 function formatDuration(totalSeconds: number): string {
   const mins = Math.floor(totalSeconds / 60);
@@ -22,12 +70,28 @@ function formatDuration(totalSeconds: number): string {
   return `${mins}m ${secs}s`;
 }
 
+function getBookMonogram(title: string): string {
+  const words = title
+    .replace(/^(The|A|An)\s+/i, '')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return 'BK';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function matchesSearch(query: string, fields: Array<string | undefined>): boolean {
+  if (!query) return true;
+  return fields.some((field) => field && field.toLowerCase().includes(query));
+}
+
 export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
   const {
     isReady,
     documents,
     sessions,
     loadSamplePassage,
+    openPublicDomainExcerpt,
     updateSettings,
     deleteDocumentWithUndo,
     showToast,
@@ -37,8 +101,12 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
   } = useAppContext();
 
   const [sortBy, setSortBy] = useState<SortKey>('recent');
+  const [selectedDescription, setSelectedDescription] = useState<DescriptionFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedBookIds, setExpandedBookIds] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [loadingSampleId, setLoadingSampleId] = useState<string | null>(null);
+  const [loadingExcerptId, setLoadingExcerptId] = useState<string | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [tryingWelcomeSample, setTryingWelcomeSample] = useState(false);
 
@@ -91,19 +159,151 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
 
   const stats = useMemo(() => computeAggregateStats(sessions), [sessions]);
 
-  const sortedDocs = useMemo(() => {
-    const copy = [...documents];
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  // Map saved documents by excerptId so catalog rows can display Resume & progress seamlessly
+  const savedByExcerptId = useMemo(() => {
+    const map = new Map<string, DocumentWithProgress>();
+    for (const entry of documents) {
+      if (entry.document.excerptId) {
+        map.set(entry.document.excerptId, entry);
+      } else if (
+        entry.document.sourceMeta?.fileName === SAMPLE_PASSAGES[0].filePath ||
+        entry.document.title === SAMPLE_PASSAGES[0].title
+      ) {
+        map.set(SAMPLE_PASSAGES[0].id, entry);
+      }
+    }
+    return map;
+  }, [documents]);
+
+  // Filter & sort saved documents using the unified Search, Description, and Sort controls
+  const filteredSavedDocs = useMemo(() => {
+    const filtered = documents.filter(({document: doc}) => {
+      if (selectedDescription !== 'all' && doc.description !== selectedDescription) {
+        return false;
+      }
+      return matchesSearch(normalizedQuery, [
+        doc.title,
+        doc.author,
+        doc.bookTitle,
+        doc.description,
+      ]);
+    });
+
     if (sortBy === 'title') {
-      copy.sort((a, b) => a.document.title.localeCompare(b.document.title));
+      filtered.sort((a, b) => a.document.title.localeCompare(b.document.title));
     } else {
-      copy.sort(
+      filtered.sort(
         (a, b) =>
           new Date(b.progress?.updatedAt ?? b.document.createdAt).getTime() -
           new Date(a.progress?.updatedAt ?? a.document.createdAt).getTime()
       );
     }
-    return copy;
-  }, [documents, sortBy]);
+    return filtered;
+  }, [documents, selectedDescription, normalizedQuery, sortBy]);
+
+  // Group and filter the 22 public-domain books & their excerpts (including the preserved default excerpt)
+  const excerptsByBookId = useMemo(() => {
+    const map = new Map<string, PublicDomainExcerpt[]>();
+    for (const excerpt of PUBLIC_DOMAIN_EXCERPTS) {
+      const list = map.get(excerpt.bookId) ?? [];
+      list.push(excerpt);
+      map.set(excerpt.bookId, list);
+    }
+    return map;
+  }, []);
+
+  // Compute Description filter counts respecting the active search query
+  const descriptionCounts = useMemo(() => {
+    const counts: Record<DescriptionFilter, number> = {
+      all: 0,
+      Accessible: 0,
+      Intermediate: 0,
+      Advanced: 0,
+      Expert: 0,
+    };
+    for (const book of PUBLIC_DOMAIN_BOOKS) {
+      const excerpts = excerptsByBookId.get(book.id) ?? [];
+      for (const ex of excerpts) {
+        const match = matchesSearch(normalizedQuery, [
+          book.title,
+          book.author,
+          book.publicationYear,
+          ex.title,
+          ex.description,
+        ]);
+        if (match) {
+          counts.all += 1;
+          counts[ex.description] += 1;
+        }
+      }
+    }
+    return counts;
+  }, [excerptsByBookId, normalizedQuery]);
+
+  const filteredBooks = useMemo(() => {
+    const entries: Array<{book: PublicDomainBook; excerpts: PublicDomainExcerpt[]}> = [];
+
+    for (const book of PUBLIC_DOMAIN_BOOKS) {
+      const allBookExcerpts = excerptsByBookId.get(book.id) ?? [];
+      const bookMatchesSearch = matchesSearch(normalizedQuery, [
+        book.title,
+        book.author,
+        book.publicationYear,
+        book.edition,
+      ]);
+
+      const matchingExcerpts = allBookExcerpts.filter((ex) => {
+        if (selectedDescription !== 'all' && ex.description !== selectedDescription) {
+          return false;
+        }
+        if (!normalizedQuery) return true;
+        return (
+          bookMatchesSearch ||
+          matchesSearch(normalizedQuery, [ex.title, ex.description])
+        );
+      });
+
+      if (matchingExcerpts.length > 0) {
+        entries.push({book, excerpts: matchingExcerpts});
+      }
+    }
+
+    if (sortBy === 'title') {
+      entries.sort((a, b) => a.book.title.localeCompare(b.book.title));
+    }
+
+    return entries;
+  }, [excerptsByBookId, selectedDescription, normalizedQuery, sortBy]);
+
+  const totalMatchingExcerpts = useMemo(
+    () => filteredBooks.reduce((sum, entry) => sum + entry.excerpts.length, 0),
+    [filteredBooks]
+  );
+
+  const allBooksCollapsed =
+    filteredBooks.length > 0 &&
+    filteredBooks.every(({book}) => !expandedBookIds[book.id]);
+
+  const handleToggleAllBooks = () => {
+    if (allBooksCollapsed) {
+      const next: Record<string, boolean> = {};
+      for (const {book} of filteredBooks) {
+        next[book.id] = true;
+      }
+      setExpandedBookIds(next);
+    } else {
+      setExpandedBookIds({});
+    }
+  };
+
+  const handleToggleBook = (bookId: string) => {
+    setExpandedBookIds((prev) => ({
+      ...prev,
+      [bookId]: !prev[bookId],
+    }));
+  };
 
   const handleLoadSample = async (sample: SamplePassage, openImmediately = false) => {
     setLoadingSampleId(sample.id);
@@ -121,6 +321,29 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
     }
   };
 
+  const handleOpenExcerpt = async (excerpt: PublicDomainExcerpt) => {
+    const existing = savedByExcerptId.get(excerpt.id);
+    if (existing) {
+      onNavigate(`/read/${encodeURIComponent(existing.document.id)}`);
+      return;
+    }
+
+    setLoadingExcerptId(excerpt.id);
+    try {
+      const doc = await openPublicDomainExcerpt(excerpt.id);
+      onNavigate(`/read/${encodeURIComponent(doc.id)}`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to open excerpt.');
+    } finally {
+      setLoadingExcerptId(null);
+    }
+  };
+
+  const handleResetFilters = () => {
+    setSelectedDescription('all');
+    setSearchQuery('');
+  };
+
   if (!isReady) {
     return (
       <div className="py-12 text-center text-sm text-[var(--text-secondary)]">
@@ -128,6 +351,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
       </div>
     );
   }
+
+  const hasActiveFilter = selectedDescription !== 'all' || normalizedQuery.length > 0;
 
   return (
     <div className="space-y-8">
@@ -217,137 +442,413 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
         </section>
       )}
 
-      {/* Document List or Empty State */}
-      {sortedDocs.length === 0 ? (
-        <section className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-6 sm:p-10">
-          <div className="max-w-xl">
-            <h2 className="text-xl font-semibold text-[var(--text-primary)]">
-              Start reading with sequential word display
+      {/* Saved / In-Progress Documents */}
+      {documents.length > 0 && (
+        <section aria-label="Saved documents" className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold tracking-tight text-[var(--text-primary)]">
+              Your Saved Reading
             </h2>
-            <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-              Paste any passage, upload a TXT, PDF, or EPUB file, or open one of the bundled
-              public-domain passages below to try Orpela right away.
+            <span className="text-xs text-[var(--text-secondary)] tabular-nums">
+              {filteredSavedDocs.length} of {documents.length}
+            </span>
+          </div>
+
+          {filteredSavedDocs.length === 0 ? (
+            <div className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 text-sm text-[var(--text-secondary)]">
+              No saved documents match the current filters.
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--border-hairline)] rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] overflow-hidden">
+              {filteredSavedDocs.map(({document: doc, progress}) => {
+                const wordIndex = progress?.wordIndex ?? 0;
+                const pct =
+                  doc.totalWords <= 1
+                    ? 0
+                    : Math.min(100, Math.round((wordIndex / (doc.totalWords - 1)) * 100));
+                const isConfirming = confirmDeleteId === doc.id;
+
+                return (
+                  <article
+                    key={doc.id}
+                    className="flex flex-col gap-4 p-4 sm:p-5 sm:flex-row sm:items-center sm:justify-between hover:bg-[var(--bg-canvas)]/50 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(`/read/${encodeURIComponent(doc.id)}`)}
+                        className="text-left block w-full group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-primary)]">
+                            {doc.title}
+                          </h3>
+                          {doc.description && (
+                            <span
+                              className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${DESCRIPTION_BADGE_CLASSES[doc.description]}`}
+                            >
+                              {doc.description}
+                            </span>
+                          )}
+                        </div>
+                        {doc.author && (
+                          <p className="mt-0.5 text-xs text-[var(--text-secondary)] truncate">
+                            {doc.author}
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums">
+                          <span>{doc.totalWords.toLocaleString()} words</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{pct}% read</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{doc.source.toUpperCase()}</span>
+                        </div>
+                      </button>
+
+                      {/* Subtle progress bar */}
+                      <div
+                        className="mt-3 h-1 w-full max-w-md rounded-full bg-[var(--bg-subtle)] overflow-hidden"
+                        aria-hidden="true"
+                      >
+                        <div
+                          className="h-full bg-[var(--accent-primary)]"
+                          style={{width: `${pct}%`}}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(`/read/${encodeURIComponent(doc.id)}`)}
+                        className="min-h-[44px] inline-flex items-center gap-2 rounded-xl bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-[var(--bg-canvas)] whitespace-nowrap hover:opacity-90"
+                      >
+                        <Play className="h-4 w-4" aria-hidden="true" />
+                        <span>{wordIndex > 0 ? 'Resume' : 'Read'}</span>
+                      </button>
+
+                      {isConfirming ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfirmDeleteId(null);
+                              void deleteDocumentWithUndo(doc.id);
+                            }}
+                            className="min-h-[44px] rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 whitespace-nowrap"
+                          >
+                            Confirm delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="min-h-[44px] rounded-xl border border-[var(--border-hairline)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] whitespace-nowrap"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(doc.id)}
+                          aria-label={`Delete ${doc.title}`}
+                          className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-[var(--border-hairline)] text-[var(--text-secondary)] hover:text-red-600 hover:bg-[var(--bg-subtle)]"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Unified Search & Description Filter Bar */}
+      <section
+        aria-label="Filter library"
+        className="flex flex-col gap-3 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-4"
+      >
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-secondary)]"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Search library"
+            placeholder="Search books, authors, or excerpts…"
+            className="w-full min-h-[44px] rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)] pl-10 pr-10 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear search"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-[var(--text-secondary)] mr-1">
+              Description
+            </span>
+            <div
+              role="group"
+              aria-label="Filter by Description"
+              className="flex flex-wrap items-center gap-1.5"
+            >
+              <button
+                type="button"
+                data-testid="description-filter-all"
+                aria-pressed={selectedDescription === 'all'}
+                onClick={() => setSelectedDescription('all')}
+                className={`min-h-[38px] inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
+                  selectedDescription === 'all'
+                    ? 'border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--bg-canvas)]'
+                    : 'border-[var(--border-hairline)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <span>All Descriptions</span>
+                <span className="tabular-nums opacity-75">{descriptionCounts.all}</span>
+              </button>
+
+              {READING_DESCRIPTIONS.map((desc) => {
+                const active = selectedDescription === desc;
+                return (
+                  <button
+                    key={desc}
+                    type="button"
+                    data-testid={`description-filter-${desc}`}
+                    aria-pressed={active}
+                    onClick={() => setSelectedDescription(desc)}
+                    className={`min-h-[38px] inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
+                      active
+                        ? 'border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--bg-canvas)]'
+                        : 'border-[var(--border-hairline)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <span>{desc}</span>
+                    <span className="tabular-nums opacity-75">{descriptionCounts[desc]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {hasActiveFilter && (
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="self-start sm:self-auto min-h-[36px] rounded-lg px-2.5 text-xs font-medium text-[var(--accent-primary)] hover:bg-[var(--bg-subtle)] whitespace-nowrap"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* Curated Public-Domain Reading Collection */}
+      <section aria-label="Public-domain collection" className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg sm:text-xl font-semibold tracking-tight text-[var(--text-primary)]">
+              Public-Domain Collection
+            </h2>
+            <p className="mt-0.5 text-xs sm:text-sm text-[var(--text-secondary)] tabular-nums">
+              Showing {totalMatchingExcerpts} {totalMatchingExcerpts === 1 ? 'excerpt' : 'excerpts'}{' '}
+              across {filteredBooks.length} {filteredBooks.length === 1 ? 'book' : 'books'}
+              {selectedDescription !== 'all' ? ` · Description: ${selectedDescription}` : ''}
             </p>
-            <div className="mt-6 flex flex-wrap gap-3">
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {documents.length === 0 && (
               <button
                 type="button"
                 onClick={() => onNavigate('/import')}
-                className="min-h-[44px] inline-flex items-center gap-2 rounded-xl bg-[var(--accent-primary)] px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                className="min-h-[40px] inline-flex items-center gap-2 rounded-xl bg-[var(--accent-primary)] px-4 py-2 text-xs sm:text-sm font-medium text-white hover:opacity-90"
               >
                 <FilePlus2 className="h-4 w-4" aria-hidden="true" />
                 <span>Paste or import file</span>
               </button>
-              {SAMPLE_PASSAGES.map((sample) => (
-                <button
-                  key={sample.id}
-                  type="button"
-                  disabled={loadingSampleId !== null}
-                  onClick={() => void handleLoadSample(sample, true)}
-                  className="min-h-[44px] inline-flex items-center gap-2 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] disabled:opacity-50"
-                >
-                  <Play className="h-4 w-4" aria-hidden="true" />
-                  <span>Read {sample.title.split('—')[0].trim()}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-      ) : (
-        <section aria-label="Saved documents" className="divide-y divide-[var(--border-hairline)] rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] overflow-hidden">
-          {sortedDocs.map(({document: doc, progress}) => {
-            const wordIndex = progress?.wordIndex ?? 0;
-            const pct =
-              doc.totalWords <= 1
-                ? 0
-                : Math.min(100, Math.round((wordIndex / (doc.totalWords - 1)) * 100));
-            const isConfirming = confirmDeleteId === doc.id;
-
-            return (
-              <article
-                key={doc.id}
-                className="flex flex-col gap-4 p-4 sm:p-5 sm:flex-row sm:items-center sm:justify-between hover:bg-[var(--bg-canvas)]/50 transition-colors"
+            )}
+            {filteredBooks.length > 0 && (
+              <button
+                type="button"
+                onClick={handleToggleAllBooks}
+                className="min-h-[40px] inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)] whitespace-nowrap"
               >
-                <div className="min-w-0 flex-1">
-                  <button
-                    type="button"
-                    onClick={() => onNavigate(`/read/${encodeURIComponent(doc.id)}`)}
-                    className="text-left block w-full group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
-                  >
-                    <h2 className="text-base font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-primary)]">
-                      {doc.title}
-                    </h2>
-                    {doc.author && (
-                      <p className="mt-0.5 text-xs text-[var(--text-secondary)] truncate">
-                        {doc.author}
-                      </p>
-                    )}
-                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums">
-                      <span>{doc.totalWords.toLocaleString()} words</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{pct}% read</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{doc.source.toUpperCase()}</span>
-                    </div>
-                  </button>
+                {allBooksCollapsed ? (
+                  <>
+                    <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Expand all</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Collapse all</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
 
-                  {/* Subtle progress bar */}
-                  <div
-                    className="mt-3 h-1 w-full max-w-md rounded-full bg-[var(--bg-subtle)] overflow-hidden"
-                    aria-hidden="true"
-                  >
+        {filteredBooks.length === 0 ? (
+          <div className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-6 sm:p-8 text-center">
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              No public-domain excerpts match your current search and Description filter.
+            </p>
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="mt-4 min-h-[44px] inline-flex items-center justify-center rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
+            >
+              Show all descriptions
+            </button>
+          </div>
+        ) : (
+          <div data-testid="public-domain-book-list" className="grid grid-cols-1 gap-4">
+            {filteredBooks.map(({book, excerpts}) => {
+              const isCollapsed = !expandedBookIds[book.id];
+              return (
+                <article
+                  key={book.id}
+                  data-testid={`book-card-${book.id}`}
+                  className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] overflow-hidden"
+                >
+                  {/* Book Metadata Header */}
+                  <div className="flex items-start gap-3.5 p-4 sm:p-5">
                     <div
-                      className="h-full bg-[var(--accent-primary)]"
-                      style={{width: `${pct}%`}}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => onNavigate(`/read/${encodeURIComponent(doc.id)}`)}
-                    className="min-h-[44px] inline-flex items-center gap-2 rounded-xl bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-[var(--bg-canvas)] whitespace-nowrap hover:opacity-90"
-                  >
-                    <Play className="h-4 w-4" aria-hidden="true" />
-                    <span>{wordIndex > 0 ? 'Resume' : 'Read'}</span>
-                  </button>
-
-                  {isConfirming ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConfirmDeleteId(null);
-                          void deleteDocumentWithUndo(doc.id);
-                        }}
-                        className="min-h-[44px] rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 whitespace-nowrap"
-                      >
-                        Confirm delete
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteId(null)}
-                        className="min-h-[44px] rounded-xl border border-[var(--border-hairline)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] whitespace-nowrap"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteId(doc.id)}
-                      aria-label={`Delete ${doc.title}`}
-                      className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-[var(--border-hairline)] text-[var(--text-secondary)] hover:text-red-600 hover:bg-[var(--bg-subtle)]"
+                      aria-hidden="true"
+                      className={`h-14 w-11 shrink-0 rounded-lg border flex flex-col items-center justify-center px-1 text-center select-none ${COVER_TONE_CLASSES[book.coverTone]}`}
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                      <span className="text-xs font-bold tracking-wider leading-none">
+                        {getBookMonogram(book.title)}
+                      </span>
+                      <span className="mt-1 text-[9px] font-medium opacity-80 leading-none truncate max-w-full">
+                        {book.publicationYear.replace(/^c\.\s*/, '').slice(0, 4)}
+                      </span>
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="text-base font-semibold leading-snug text-[var(--text-primary)]">
+                            {book.title}
+                          </h3>
+                          <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                            {book.author} · {book.publicationYear}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBook(book.id)}
+                          aria-expanded={!isCollapsed}
+                          aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${book.title}`}
+                          className="min-h-[40px] min-w-[40px] shrink-0 inline-flex items-center justify-center rounded-xl border border-[var(--border-hairline)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]"
+                        >
+                          {isCollapsed ? (
+                            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                          ) : (
+                            <ChevronUp className="h-4 w-4" aria-hidden="true" />
+                          )}
+                        </button>
+                      </div>
+
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                        {book.sourceName} · {book.edition} · {book.publicDomainStatus}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Excerpts List */}
+                  {!isCollapsed && (
+                    <div className="divide-y divide-[var(--border-hairline)] border-t border-[var(--border-hairline)]">
+                      {excerpts.map((excerpt) => {
+                        const saved = savedByExcerptId.get(excerpt.id);
+                        const savedWordIndex = saved?.progress?.wordIndex ?? 0;
+                        const savedPct =
+                          saved && saved.document.totalWords > 1
+                            ? Math.min(
+                                100,
+                                Math.round(
+                                  (savedWordIndex / (saved.document.totalWords - 1)) * 100
+                                )
+                              )
+                            : 0;
+                        const isOpening = loadingExcerptId === excerpt.id;
+
+                        return (
+                          <div
+                            key={excerpt.id}
+                            data-testid={`excerpt-row-${excerpt.id}`}
+                            className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 hover:bg-[var(--bg-canvas)]/60 transition-colors"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-sm font-medium text-[var(--text-primary)] leading-snug">
+                                  {excerpt.title}
+                                </span>
+                                {excerpt.isDefault && (
+                                  <span className="inline-flex items-center rounded-md border border-[var(--border-hairline)] bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
+                                    Default
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums">
+                                <span
+                                  className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-none ${DESCRIPTION_BADGE_CLASSES[excerpt.description]}`}
+                                >
+                                  {excerpt.description}
+                                </span>
+                                <span>{excerpt.wordCount.toLocaleString()} words</span>
+                                {saved && savedWordIndex > 0 && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span>{savedPct}% read</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              disabled={loadingExcerptId !== null}
+                              onClick={() => void handleOpenExcerpt(excerpt)}
+                              aria-label={`${saved && savedWordIndex > 0 ? 'Resume' : 'Read'} ${excerpt.title}`}
+                              className="min-h-[44px] shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3.5 py-2 text-xs font-medium text-[var(--text-primary)] whitespace-nowrap hover:bg-[var(--text-primary)] hover:text-[var(--bg-canvas)] hover:border-[var(--text-primary)] transition-colors disabled:opacity-50"
+                            >
+                              <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span>
+                                {isOpening
+                                  ? 'Opening…'
+                                  : saved && savedWordIndex > 0
+                                    ? 'Resume'
+                                    : 'Read'}
+                              </span>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
-                </div>
-              </article>
-            );
-          })}
-        </section>
-      )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <WelcomeModal
         open={welcomeOpen}

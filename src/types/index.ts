@@ -1,9 +1,25 @@
 export type DocumentSource = 'paste' | 'txt' | 'pdf' | 'epub';
 
+export type ReadingDescription = 'Accessible' | 'Intermediate' | 'Advanced' | 'Expert';
+
+export const READING_DESCRIPTIONS: readonly ReadingDescription[] = [
+  'Accessible',
+  'Intermediate',
+  'Advanced',
+  'Expert',
+] as const;
+
 export interface LibraryDocument {
   id: string;
   title: string;
   author?: string;
+  description?: ReadingDescription;
+  bookId?: string;
+  bookTitle?: string;
+  excerptId?: string;
+  publicationYear?: string;
+  sourceAttribution?: string;
+  publicDomainStatus?: string;
   source: DocumentSource;
   sourceMeta?: {
     fileName?: string;
@@ -82,6 +98,13 @@ export interface ReaderSettings {
 export interface ImportResult {
   title: string;
   author?: string;
+  description?: ReadingDescription;
+  bookId?: string;
+  bookTitle?: string;
+  excerptId?: string;
+  publicationYear?: string;
+  sourceAttribution?: string;
+  publicDomainStatus?: string;
   text: string;
   source: DocumentSource;
   warnings: string[];
