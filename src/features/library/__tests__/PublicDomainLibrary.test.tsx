@@ -503,5 +503,88 @@ describe('public-domain collection & Description filtering', () => {
     await runExpandScenario(false);
     await runExpandScenario(true);
   });
+
+  it('renders a book cover in Your Saved Reading for legacy saved Meditations - Book IV documents without bookId', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalIntersectionObserver = globalThis.IntersectionObserver;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          docs: [
+            {
+              key: '/works/OL1532333W',
+              title: 'Meditations',
+              author_name: ['Marcus Aurelius'],
+              cover_edition_key: 'OL40348052M',
+              cover_i: 13202688,
+            },
+          ],
+        }),
+        {status: 200, headers: {'Content-Type': 'application/json'}}
+      )
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.IntersectionObserver = class {
+      private callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) {
+        this.callback = callback;
+      }
+      observe(target: Element) {
+        // Trigger intersection for saved reading covers (elements outside public-domain-scroll)
+        if (!target.closest('[data-testid="public-domain-scroll"]')) {
+          this.callback(
+            [{isIntersecting: true, target} as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver
+          );
+        }
+      }
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+      root = null;
+      rootMargin = '';
+      thresholds = [];
+    } as unknown as typeof IntersectionObserver;
+
+    try {
+      const now = new Date().toISOString();
+      await db.documents.put({
+        id: 'legacy-meditations-doc',
+        title: 'Meditations — Book IV (Excerpt)',
+        author: 'Marcus Aurelius · Translated by George Long (Public Domain)',
+        source: 'txt',
+        totalWords: 150,
+        contentHash: 'legacy-meditations-hash',
+        tokenizerVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.contents.put({
+        documentId: 'legacy-meditations-doc',
+        text: 'Men seek retreats for themselves.',
+      });
+
+      render(<App />);
+
+      const savedSection = await waitFor(() =>
+        screen.getByRole('region', {name: 'Saved documents'})
+      );
+
+      const coverImg = await waitFor(() =>
+        within(savedSection).getByAltText('Cover of Meditations') as HTMLImageElement
+      );
+      expect(coverImg.src).toBe(
+        'https://covers.openlibrary.org/b/olid/OL40348052M-S.jpg?default=false'
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [calledUrl] = fetchMock.mock.calls[0] as [string];
+      expect(new URL(calledUrl).searchParams.get('q')).toBe('Meditations Marcus Aurelius');
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.IntersectionObserver = originalIntersectionObserver;
+    }
+  });
 });
 

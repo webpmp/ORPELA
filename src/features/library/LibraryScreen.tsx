@@ -9,12 +9,12 @@ import {
   X,
 } from 'lucide-react';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {BookCover, BookCoverModal, type BookCoverPreviewData} from '../../components/BookCover';
 import {WelcomeModal} from '../../components/WelcomeModal';
 import {WELCOME_SEEN_KEY} from '../../content/guidance';
 import {
   PUBLIC_DOMAIN_BOOKS,
   PUBLIC_DOMAIN_EXCERPTS,
-  type BookCoverTone,
   type PublicDomainBook,
   type PublicDomainExcerpt,
 } from '../../content/publicDomainCatalog';
@@ -24,6 +24,7 @@ import {computeAggregateStats} from '../../services/sessions';
 import {
   READING_DESCRIPTIONS,
   type DocumentWithProgress,
+  type LibraryDocument,
   type ReadingDescription,
 } from '../../types';
 
@@ -33,21 +34,6 @@ interface LibraryScreenProps {
 
 type SortKey = 'recent' | 'title';
 type DescriptionFilter = 'all' | ReadingDescription;
-
-const COVER_TONE_CLASSES: Record<BookCoverTone, string> = {
-  slate: 'bg-slate-500/12 text-slate-700 dark:text-slate-300 border-slate-500/20',
-  amber: 'bg-amber-500/12 text-amber-800 dark:text-amber-300 border-amber-500/25',
-  rose: 'bg-rose-500/12 text-rose-800 dark:text-rose-300 border-rose-500/25',
-  emerald: 'bg-emerald-500/12 text-emerald-800 dark:text-emerald-300 border-emerald-500/25',
-  indigo: 'bg-indigo-500/12 text-indigo-800 dark:text-indigo-300 border-indigo-500/25',
-  red: 'bg-red-500/12 text-red-800 dark:text-red-300 border-red-500/25',
-  teal: 'bg-teal-500/12 text-teal-800 dark:text-teal-300 border-teal-500/25',
-  sky: 'bg-sky-500/12 text-sky-800 dark:text-sky-300 border-sky-500/25',
-  purple: 'bg-purple-500/12 text-purple-800 dark:text-purple-300 border-purple-500/25',
-  violet: 'bg-violet-500/12 text-violet-800 dark:text-violet-300 border-violet-500/25',
-  stone: 'bg-stone-500/12 text-stone-700 dark:text-stone-300 border-stone-500/25',
-  blue: 'bg-blue-500/12 text-blue-800 dark:text-blue-300 border-blue-500/25',
-};
 
 const DESCRIPTION_BADGE_CLASSES: Record<ReadingDescription, string> = {
   Accessible:
@@ -70,19 +56,48 @@ function formatDuration(totalSeconds: number): string {
   return `${mins}m ${secs}s`;
 }
 
-function getBookMonogram(title: string): string {
-  const words = title
-    .replace(/^(The|A|An)\s+/i, '')
-    .split(/\s+/)
-    .filter(Boolean);
-  if (words.length === 0) return 'BK';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return `${words[0][0]}${words[1][0]}`.toUpperCase();
-}
-
 function matchesSearch(query: string, fields: Array<string | undefined>): boolean {
   if (!query) return true;
   return fields.some((field) => field && field.toLowerCase().includes(query));
+}
+
+function findLinkedBook(
+  doc: LibraryDocument,
+  bookById: Map<string, PublicDomainBook>
+): PublicDomainBook | undefined {
+  if (doc.bookId) {
+    const direct = bookById.get(doc.bookId);
+    if (direct) return direct;
+  }
+
+  const normalizedDocTitle = doc.title.trim().toLowerCase();
+  const normalizedBookTitle = doc.bookTitle?.trim().toLowerCase();
+
+  for (const sample of SAMPLE_PASSAGES) {
+    if (
+      (doc.excerptId && doc.excerptId === sample.id) ||
+      (doc.sourceMeta?.fileName && doc.sourceMeta.fileName === sample.filePath) ||
+      normalizedDocTitle === sample.title.toLowerCase()
+    ) {
+      return bookById.get(sample.bookId);
+    }
+  }
+
+  for (const book of PUBLIC_DOMAIN_BOOKS) {
+    const lowerTitle = book.title.toLowerCase();
+    if (
+      normalizedBookTitle === lowerTitle ||
+      normalizedDocTitle === lowerTitle ||
+      normalizedDocTitle.startsWith(`${lowerTitle}:`) ||
+      normalizedDocTitle.startsWith(`${lowerTitle} —`) ||
+      normalizedDocTitle.startsWith(`${lowerTitle} –`) ||
+      normalizedDocTitle.startsWith(`${lowerTitle} -`)
+    ) {
+      return book;
+    }
+  }
+
+  return undefined;
 }
 
 function getPreferredScrollBehavior(): ScrollBehavior {
@@ -130,6 +145,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
   const [loadingExcerptId, setLoadingExcerptId] = useState<string | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [tryingWelcomeSample, setTryingWelcomeSample] = useState(false);
+  const [coverPreview, setCoverPreview] = useState<BookCoverPreviewData | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const bookListRef = useRef<HTMLDivElement | null>(null);
@@ -230,6 +246,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
     }
     return filtered;
   }, [documents, selectedDescription, normalizedQuery, sortBy]);
+
+  const bookById = useMemo(() => {
+    const map = new Map<string, PublicDomainBook>();
+    for (const book of PUBLIC_DOMAIN_BOOKS) {
+      map.set(book.id, book);
+    }
+    return map;
+  }, []);
 
   // Group and filter the 22 public-domain books & their excerpts (including the preserved default excerpt)
   const excerptsByBookId = useMemo(() => {
@@ -616,22 +640,38 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
                     ? 0
                     : Math.min(100, Math.round((wordIndex / (doc.totalWords - 1)) * 100));
                 const isConfirming = confirmDeleteId === doc.id;
+                const linkedBook = findLinkedBook(doc, bookById);
+                const showSavedCover = Boolean(linkedBook || doc.author);
 
                 return (
                   <article
                     key={doc.id}
                     className="flex flex-col gap-4 p-4 sm:p-5 sm:flex-row sm:items-center sm:justify-between hover:bg-[var(--bg-canvas)]/50 transition-colors"
                   >
-                    <div className="min-w-0 flex-1">
-                      <button
-                        type="button"
-                        onClick={() => onNavigate(`/read/${encodeURIComponent(doc.id)}`)}
-                        className="text-left block w-full group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-base font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-primary)]">
-                            {doc.title}
-                          </h3>
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      {showSavedCover && (
+                        <BookCover
+                          title={linkedBook?.title ?? doc.bookTitle ?? doc.title}
+                          author={linkedBook?.author ?? doc.author}
+                          publicationYear={linkedBook?.publicationYear ?? doc.publicationYear}
+                          edition={linkedBook?.edition}
+                          sourceName={linkedBook?.sourceName ?? doc.sourceAttribution}
+                          coverTone={linkedBook?.coverTone ?? 'slate'}
+                          identifiers={linkedBook?.coverIdentifiers}
+                          size="S"
+                          onInspect={setCoverPreview}
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => onNavigate(`/read/${encodeURIComponent(doc.id)}`)}
+                          className="text-left block w-full group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-base font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-primary)]">
+                              {doc.title}
+                            </h3>
                           {doc.description && (
                             <span
                               className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${DESCRIPTION_BADGE_CLASSES[doc.description]}`}
@@ -663,6 +703,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
                           className="h-full bg-[var(--accent-primary)]"
                           style={{width: `${pct}%`}}
                         />
+                      </div>
                       </div>
                     </div>
 
@@ -897,17 +938,18 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
                     >
                       {/* Book Metadata Header */}
                       <div className="flex items-start gap-3.5 p-4 sm:p-5">
-                        <div
-                          aria-hidden="true"
-                          className={`h-14 w-11 shrink-0 rounded-lg border flex flex-col items-center justify-center px-1 text-center select-none ${COVER_TONE_CLASSES[book.coverTone]}`}
-                        >
-                          <span className="text-xs font-bold tracking-wider leading-none">
-                            {getBookMonogram(book.title)}
-                          </span>
-                          <span className="mt-1 text-[9px] font-medium opacity-80 leading-none truncate max-w-full">
-                            {book.publicationYear.replace(/^c\.\s*/, '').slice(0, 4)}
-                          </span>
-                        </div>
+                        <BookCover
+                          title={book.title}
+                          author={book.author}
+                          publicationYear={book.publicationYear}
+                          edition={book.edition}
+                          sourceName={book.sourceName}
+                          coverTone={book.coverTone}
+                          identifiers={book.coverIdentifiers}
+                          size="M"
+                          scrollRootRef={scrollContainerRef}
+                          onInspect={setCoverPreview}
+                        />
 
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
@@ -1036,6 +1078,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
         onDismiss={handleDismissWelcome}
         onTrySample={() => void handleTrySampleFromWelcome()}
       />
+
+      <BookCoverModal preview={coverPreview} onClose={() => setCoverPreview(null)} />
     </div>
   );
 };

@@ -1,3 +1,4 @@
+import type {OpenLibraryCoverIdentifiers} from '../services/openLibraryCovers';
 import type {ReadingDescription} from '../types';
 
 export type BookCoverTone =
@@ -24,6 +25,7 @@ export interface PublicDomainBook {
   sourceUrl: string;
   publicDomainStatus: string;
   coverTone: BookCoverTone;
+  coverIdentifiers?: OpenLibraryCoverIdentifiers;
 }
 
 export interface PublicDomainExcerpt {

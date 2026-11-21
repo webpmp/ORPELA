@@ -75,6 +75,22 @@ export default defineConfig(({command, mode, isPreview}) => {
         workbox: {
           globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg,woff,woff2,txt}'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/covers\.openlibrary\.org\/b\/.*\.jpg(?:\?.*)?$/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'openlibrary-book-covers',
+                expiration: {
+                  maxEntries: 60,
+                  maxAgeSeconds: 30 * 24 * 60 * 60,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+          ],
         },
         devOptions: {
           enabled: true,
