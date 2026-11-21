@@ -8,7 +8,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {WelcomeModal} from '../../components/WelcomeModal';
 import {WELCOME_SEEN_KEY} from '../../content/guidance';
 import {
@@ -85,6 +85,26 @@ function matchesSearch(query: string, fields: Array<string | undefined>): boolea
   return fields.some((field) => field && field.toLowerCase().includes(query));
 }
 
+function getPreferredScrollBehavior(): ScrollBehavior {
+  if (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) {
+    return 'auto';
+  }
+  return 'smooth';
+}
+
+function scrollContainerTo(container: HTMLElement, top: number, behavior: ScrollBehavior): void {
+  const clampedTop = Math.max(0, top);
+  if (typeof container.scrollTo === 'function') {
+    container.scrollTo({top: clampedTop, behavior});
+  } else {
+    container.scrollTop = clampedTop;
+  }
+}
+
 export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
   const {
     isReady,
@@ -104,11 +124,19 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
   const [selectedDescription, setSelectedDescription] = useState<DescriptionFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedBookIds, setExpandedBookIds] = useState<Record<string, boolean>>({});
+  const [showBottomFade, setShowBottomFade] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [loadingSampleId, setLoadingSampleId] = useState<string | null>(null);
   const [loadingExcerptId, setLoadingExcerptId] = useState<string | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [tryingWelcomeSample, setTryingWelcomeSample] = useState(false);
+
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const bookListRef = useRef<HTMLDivElement | null>(null);
+  const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
+  const bookCardRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const pendingScrollBookIdRef = useRef<string | null>(null);
+  const pendingScrollTopRef = useRef(false);
 
   useEffect(() => {
     if (!isReady) return;
@@ -286,7 +314,123 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
     filteredBooks.length > 0 &&
     filteredBooks.every(({book}) => !expandedBookIds[book.id]);
 
+  const updateBottomFade = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) {
+      setShowBottomFade(false);
+      return;
+    }
+    const remaining = el.scrollHeight - el.clientHeight - el.scrollTop;
+    const hasOverflowBelow = el.scrollHeight > el.clientHeight + 2 && remaining > 2;
+    setShowBottomFade(hasOverflowBelow);
+  }, []);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!isReady || !container) {
+      setShowBottomFade(false);
+      return;
+    }
+
+    updateBottomFade();
+
+    let rafId: number | null = null;
+    let rafPending = false;
+    const handleScroll = () => {
+      if (rafPending) return;
+      rafPending = true;
+      rafId = window.requestAnimationFrame(() => {
+        rafPending = false;
+        rafId = null;
+        updateBottomFade();
+      });
+    };
+
+    container.addEventListener('scroll', handleScroll, {passive: true});
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        updateBottomFade();
+      });
+      resizeObserver.observe(container);
+      if (bookListRef.current) {
+        resizeObserver.observe(bookListRef.current);
+      }
+    }
+
+    let intersectionObserver: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== 'undefined' && bottomSentinelRef.current) {
+      intersectionObserver = new IntersectionObserver(
+        () => {
+          updateBottomFade();
+        },
+        {root: container, threshold: 0}
+      );
+      intersectionObserver.observe(bottomSentinelRef.current);
+    }
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (rafPending && rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+      resizeObserver?.disconnect();
+      intersectionObserver?.disconnect();
+    };
+  }, [isReady, filteredBooks.length, updateBottomFade]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    if (pendingScrollTopRef.current) {
+      pendingScrollTopRef.current = false;
+      scrollContainerTo(container, 0, getPreferredScrollBehavior());
+      updateBottomFade();
+      return;
+    }
+
+    const bookId = pendingScrollBookIdRef.current;
+    if (bookId) {
+      pendingScrollBookIdRef.current = null;
+      const card = bookCardRefs.current.get(bookId);
+      if (card) {
+        const containerRect = container.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
+        if (containerRect.height > 0) {
+          const edgePadding = 12;
+          if (cardRect.top < containerRect.top) {
+            const delta = cardRect.top - containerRect.top - edgePadding;
+            scrollContainerTo(
+              container,
+              container.scrollTop + delta,
+              getPreferredScrollBehavior()
+            );
+          } else if (cardRect.bottom > containerRect.bottom) {
+            const overflowBottom = cardRect.bottom - containerRect.bottom + edgePadding;
+            const maxShiftKeepingTopVisible = Math.max(
+              0,
+              cardRect.top - containerRect.top - edgePadding
+            );
+            const delta = Math.min(overflowBottom, maxShiftKeepingTopVisible);
+            if (delta > 0) {
+              scrollContainerTo(
+                container,
+                container.scrollTop + delta,
+                getPreferredScrollBehavior()
+              );
+            }
+          }
+        }
+      }
+    }
+
+    updateBottomFade();
+  }, [expandedBookIds, updateBottomFade]);
+
   const handleToggleAllBooks = () => {
+    pendingScrollBookIdRef.current = null;
     if (allBooksCollapsed) {
       const next: Record<string, boolean> = {};
       for (const {book} of filteredBooks) {
@@ -294,11 +438,16 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
       }
       setExpandedBookIds(next);
     } else {
+      pendingScrollTopRef.current = true;
       setExpandedBookIds({});
     }
   };
 
   const handleToggleBook = (bookId: string) => {
+    const willExpand = !expandedBookIds[bookId];
+    if (willExpand) {
+      pendingScrollBookIdRef.current = bookId;
+    }
     setExpandedBookIds((prev) => ({
       ...prev,
       [bookId]: !prev[bookId],
@@ -656,7 +805,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
         </div>
       </section>
 
-      {/* Curated Public-Domain Reading Collection */}
+      {/* Curated Public-Domain Reading Collection: header stays fixed above a bounded scrollable book list */}
       <section aria-label="Public-domain collection" className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -717,135 +866,166 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({onNavigate}) => {
             </button>
           </div>
         ) : (
-          <div data-testid="public-domain-book-list" className="grid grid-cols-1 gap-4">
-            {filteredBooks.map(({book, excerpts}) => {
-              const isCollapsed = !expandedBookIds[book.id];
-              return (
-                <article
-                  key={book.id}
-                  data-testid={`book-card-${book.id}`}
-                  className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] overflow-hidden"
-                >
-                  {/* Book Metadata Header */}
-                  <div className="flex items-start gap-3.5 p-4 sm:p-5">
-                    <div
-                      aria-hidden="true"
-                      className={`h-14 w-11 shrink-0 rounded-lg border flex flex-col items-center justify-center px-1 text-center select-none ${COVER_TONE_CLASSES[book.coverTone]}`}
+          <div className="relative w-full min-w-0">
+            <div
+              ref={scrollContainerRef}
+              data-testid="public-domain-scroll"
+              role="region"
+              aria-label="Public-domain books, scrollable list"
+              tabIndex={0}
+              className="public-domain-scroll w-full min-w-0 max-h-[clamp(14rem,60dvh,36rem)] overflow-y-auto overflow-x-hidden rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-subtle)] p-3 sm:p-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
+            >
+              <div
+                ref={bookListRef}
+                data-testid="public-domain-book-list"
+                className="grid grid-cols-1 gap-4"
+              >
+                {filteredBooks.map(({book, excerpts}) => {
+                  const isCollapsed = !expandedBookIds[book.id];
+                  return (
+                    <article
+                      key={book.id}
+                      ref={(node) => {
+                        if (node) {
+                          bookCardRefs.current.set(book.id, node);
+                        } else {
+                          bookCardRefs.current.delete(book.id);
+                        }
+                      }}
+                      data-testid={`book-card-${book.id}`}
+                      className="scroll-mt-3 scroll-mb-12 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] overflow-hidden"
                     >
-                      <span className="text-xs font-bold tracking-wider leading-none">
-                        {getBookMonogram(book.title)}
-                      </span>
-                      <span className="mt-1 text-[9px] font-medium opacity-80 leading-none truncate max-w-full">
-                        {book.publicationYear.replace(/^c\.\s*/, '').slice(0, 4)}
-                      </span>
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h3 className="text-base font-semibold leading-snug text-[var(--text-primary)]">
-                            {book.title}
-                          </h3>
-                          <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
-                            {book.author} · {book.publicationYear}
-                          </p>
+                      {/* Book Metadata Header */}
+                      <div className="flex items-start gap-3.5 p-4 sm:p-5">
+                        <div
+                          aria-hidden="true"
+                          className={`h-14 w-11 shrink-0 rounded-lg border flex flex-col items-center justify-center px-1 text-center select-none ${COVER_TONE_CLASSES[book.coverTone]}`}
+                        >
+                          <span className="text-xs font-bold tracking-wider leading-none">
+                            {getBookMonogram(book.title)}
+                          </span>
+                          <span className="mt-1 text-[9px] font-medium opacity-80 leading-none truncate max-w-full">
+                            {book.publicationYear.replace(/^c\.\s*/, '').slice(0, 4)}
+                          </span>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => handleToggleBook(book.id)}
-                          aria-expanded={!isCollapsed}
-                          aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${book.title}`}
-                          className="min-h-[40px] min-w-[40px] shrink-0 inline-flex items-center justify-center rounded-xl border border-[var(--border-hairline)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]"
-                        >
-                          {isCollapsed ? (
-                            <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                          ) : (
-                            <ChevronUp className="h-4 w-4" aria-hidden="true" />
-                          )}
-                        </button>
-                      </div>
-
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">
-                        {book.sourceName} · {book.edition} · {book.publicDomainStatus}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Excerpts List */}
-                  {!isCollapsed && (
-                    <div className="divide-y divide-[var(--border-hairline)] border-t border-[var(--border-hairline)]">
-                      {excerpts.map((excerpt) => {
-                        const saved = savedByExcerptId.get(excerpt.id);
-                        const savedWordIndex = saved?.progress?.wordIndex ?? 0;
-                        const savedPct =
-                          saved && saved.document.totalWords > 1
-                            ? Math.min(
-                                100,
-                                Math.round(
-                                  (savedWordIndex / (saved.document.totalWords - 1)) * 100
-                                )
-                              )
-                            : 0;
-                        const isOpening = loadingExcerptId === excerpt.id;
-
-                        return (
-                          <div
-                            key={excerpt.id}
-                            data-testid={`excerpt-row-${excerpt.id}`}
-                            className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 hover:bg-[var(--bg-canvas)]/60 transition-colors"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-sm font-medium text-[var(--text-primary)] leading-snug">
-                                  {excerpt.title}
-                                </span>
-                                {excerpt.isDefault && (
-                                  <span className="inline-flex items-center rounded-md border border-[var(--border-hairline)] bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
-                                    Default
-                                  </span>
-                                )}
-                              </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums">
-                                <span
-                                  className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-none ${DESCRIPTION_BADGE_CLASSES[excerpt.description]}`}
-                                >
-                                  {excerpt.description}
-                                </span>
-                                <span>{excerpt.wordCount.toLocaleString()} words</span>
-                                {saved && savedWordIndex > 0 && (
-                                  <>
-                                    <span aria-hidden="true">·</span>
-                                    <span>{savedPct}% read</span>
-                                  </>
-                                )}
-                              </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <h3 className="text-base font-semibold leading-snug text-[var(--text-primary)]">
+                                {book.title}
+                              </h3>
+                              <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                                {book.author} · {book.publicationYear}
+                              </p>
                             </div>
 
                             <button
                               type="button"
-                              disabled={loadingExcerptId !== null}
-                              onClick={() => void handleOpenExcerpt(excerpt)}
-                              aria-label={`${saved && savedWordIndex > 0 ? 'Resume' : 'Read'} ${excerpt.title}`}
-                              className="min-h-[44px] shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3.5 py-2 text-xs font-medium text-[var(--text-primary)] whitespace-nowrap hover:bg-[var(--text-primary)] hover:text-[var(--bg-canvas)] hover:border-[var(--text-primary)] transition-colors disabled:opacity-50"
+                              onClick={() => handleToggleBook(book.id)}
+                              aria-expanded={!isCollapsed}
+                              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${book.title}`}
+                              className="scroll-mt-3 scroll-mb-12 min-h-[40px] min-w-[40px] shrink-0 inline-flex items-center justify-center rounded-xl border border-[var(--border-hairline)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
                             >
-                              <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                              <span>
-                                {isOpening
-                                  ? 'Opening…'
-                                  : saved && savedWordIndex > 0
-                                    ? 'Resume'
-                                    : 'Read'}
-                              </span>
+                              {isCollapsed ? (
+                                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                              ) : (
+                                <ChevronUp className="h-4 w-4" aria-hidden="true" />
+                              )}
                             </button>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
+
+                          <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                            {book.sourceName} · {book.edition} · {book.publicDomainStatus}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Excerpts List */}
+                      {!isCollapsed && (
+                        <div className="divide-y divide-[var(--border-hairline)] border-t border-[var(--border-hairline)]">
+                          {excerpts.map((excerpt) => {
+                            const saved = savedByExcerptId.get(excerpt.id);
+                            const savedWordIndex = saved?.progress?.wordIndex ?? 0;
+                            const savedPct =
+                              saved && saved.document.totalWords > 1
+                                ? Math.min(
+                                    100,
+                                    Math.round(
+                                      (savedWordIndex / (saved.document.totalWords - 1)) * 100
+                                    )
+                                  )
+                                : 0;
+                            const isOpening = loadingExcerptId === excerpt.id;
+
+                            return (
+                              <div
+                                key={excerpt.id}
+                                data-testid={`excerpt-row-${excerpt.id}`}
+                                className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 hover:bg-[var(--bg-canvas)]/60 transition-colors"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-sm font-medium text-[var(--text-primary)] leading-snug">
+                                      {excerpt.title}
+                                    </span>
+                                    {excerpt.isDefault && (
+                                      <span className="inline-flex items-center rounded-md border border-[var(--border-hairline)] bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
+                                        Default
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums">
+                                    <span
+                                      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-none ${DESCRIPTION_BADGE_CLASSES[excerpt.description]}`}
+                                    >
+                                      {excerpt.description}
+                                    </span>
+                                    <span>{excerpt.wordCount.toLocaleString()} words</span>
+                                    {saved && savedWordIndex > 0 && (
+                                      <>
+                                        <span aria-hidden="true">·</span>
+                                        <span>{savedPct}% read</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  disabled={loadingExcerptId !== null}
+                                  onClick={() => void handleOpenExcerpt(excerpt)}
+                                  aria-label={`${saved && savedWordIndex > 0 ? 'Resume' : 'Read'} ${excerpt.title}`}
+                                  className="scroll-mt-3 scroll-mb-12 min-h-[44px] shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3.5 py-2 text-xs font-medium text-[var(--text-primary)] whitespace-nowrap hover:bg-[var(--text-primary)] hover:text-[var(--bg-canvas)] hover:border-[var(--text-primary)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)] disabled:opacity-50"
+                                >
+                                  <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                                  <span>
+                                    {isOpening
+                                      ? 'Opening…'
+                                      : saved && savedWordIndex > 0
+                                        ? 'Resume'
+                                        : 'Read'}
+                                  </span>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+              <div ref={bottomSentinelRef} aria-hidden="true" className="h-px w-full shrink-0" />
+            </div>
+
+            {showBottomFade && (
+              <div
+                data-testid="public-domain-scroll-fade"
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-px bottom-px h-10 rounded-b-2xl bg-gradient-to-t from-[var(--bg-subtle)] via-[var(--bg-subtle)]/80 to-transparent"
+              />
+            )}
           </div>
         )}
       </section>

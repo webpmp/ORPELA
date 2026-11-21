@@ -298,4 +298,210 @@ describe('public-domain collection & Description filtering', () => {
     );
     expect(screen.queryByTestId('excerpt-row-sherlock-bohemia-opening')).toBeNull();
   });
+
+  it('renders the Public-Domain Collection book list inside a bounded accessible scroll container with header outside and shrink-to-content behavior', async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('public-domain-scroll')).toBeTruthy();
+    });
+
+    const collectionSection = screen.getByRole('region', {name: 'Public-domain collection'});
+    const scrollContainer = screen.getByTestId('public-domain-scroll');
+    const bookList = screen.getByTestId('public-domain-book-list');
+
+    // Container accessibility & styling attributes
+    expect(scrollContainer.getAttribute('role')).toBe('region');
+    expect(scrollContainer.getAttribute('aria-label')).toBe(
+      'Public-domain books, scrollable list'
+    );
+    expect(scrollContainer.getAttribute('tabindex')).toBe('0');
+    expect(scrollContainer.className).toContain('max-h-[clamp(14rem,60dvh,36rem)]');
+    expect(scrollContainer.className).toContain('overflow-y-auto');
+    expect(scrollContainer.className).toContain('overflow-x-hidden');
+    expect(scrollContainer.className).toContain('focus-visible:outline-2');
+    // Must not set overscroll-behavior: contain so scroll chaining works
+    expect(scrollContainer.className).not.toMatch(/overscroll-(?:y-)?contain/);
+    // Must not use a fixed height so shorter content shrinks cleanly
+    expect(scrollContainer.className).not.toMatch(/(?:^|\s)h-\[/);
+    expect(scrollContainer.className).not.toMatch(/(?:^|\s)h-\d+/);
+
+    // Book list lives inside the scroll container
+    expect(scrollContainer.contains(bookList)).toBe(true);
+
+    // Header block (heading, count line, Expand all) stays OUTSIDE the scroll container
+    const heading = within(collectionSection).getByRole('heading', {
+      name: 'Public-Domain Collection',
+    });
+    const countLine = within(collectionSection).getByText(/Showing 111 excerpts across 22 books/);
+    const expandAllBtn = within(collectionSection).getByRole('button', {name: 'Expand all'});
+    expect(scrollContainer.contains(heading)).toBe(false);
+    expect(scrollContainer.contains(countLine)).toBe(false);
+    expect(scrollContainer.contains(expandAllBtn)).toBe(false);
+
+    // When filtered to 1 book whose content fits inside the container, no bottom fade is rendered
+    const searchInput = screen.getByRole('searchbox', {name: 'Search library'});
+    fireEvent.change(searchInput, {target: {value: 'Dracula'}});
+    expect(screen.getAllByTestId(/^book-card-/)).toHaveLength(1);
+    expect(screen.queryByTestId('public-domain-scroll-fade')).toBeNull();
+  });
+
+  it('shows the bottom fade when overflowing and hides it once scrolled to the end, preserves scroll on Expand all, and scrolls to top on Collapse all', async () => {
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      });
+
+    try {
+      render(<App />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-domain-scroll')).toBeTruthy();
+      });
+
+      const scrollContainer = screen.getByTestId('public-domain-scroll');
+      let currentScrollTop = 0;
+
+      Object.defineProperty(scrollContainer, 'scrollHeight', {
+        configurable: true,
+        get: () => 1600,
+      });
+      Object.defineProperty(scrollContainer, 'clientHeight', {
+        configurable: true,
+        get: () => 400,
+      });
+      Object.defineProperty(scrollContainer, 'scrollTop', {
+        configurable: true,
+        get: () => currentScrollTop,
+        set: (v: number) => {
+          currentScrollTop = v;
+        },
+      });
+      const scrollToSpy = vi.fn((arg?: ScrollToOptions | number, y?: number) => {
+        if (typeof arg === 'object' && arg !== null && typeof arg.top === 'number') {
+          currentScrollTop = arg.top;
+        } else if (typeof y === 'number') {
+          currentScrollTop = y;
+        }
+      });
+      scrollContainer.scrollTo = scrollToSpy as unknown as typeof scrollContainer.scrollTo;
+
+      // Trigger scroll update at top -> bottom fade appears
+      fireEvent.scroll(scrollContainer);
+      await waitFor(() => {
+        const fade = screen.getByTestId('public-domain-scroll-fade');
+        expect(fade).toBeTruthy();
+        expect(fade.className).toContain('pointer-events-none');
+      });
+
+      // Scroll partway down, then click "Expand all" -> scroll position is preserved
+      currentScrollTop = 320;
+      fireEvent.scroll(scrollContainer);
+      scrollToSpy.mockClear();
+
+      fireEvent.click(screen.getByRole('button', {name: 'Expand all'}));
+      expect(scrollToSpy).not.toHaveBeenCalled();
+      expect(currentScrollTop).toBe(320);
+
+      // Scroll to the bottom -> bottom fade disappears
+      currentScrollTop = 1200;
+      fireEvent.scroll(scrollContainer);
+      await waitFor(() => {
+        expect(screen.queryByTestId('public-domain-scroll-fade')).toBeNull();
+      });
+
+      // Click "Collapse all" -> scrolls container back to top
+      fireEvent.click(screen.getByRole('button', {name: 'Collapse all'}));
+      await waitFor(() => {
+        expect(scrollToSpy).toHaveBeenCalledWith({top: 0, behavior: 'smooth'});
+      });
+      expect(currentScrollTop).toBe(0);
+    } finally {
+      rafSpy.mockRestore();
+    }
+  });
+
+  it('scrolls an expanded card near the bottom into view and respects prefers-reduced-motion', async () => {
+    const runExpandScenario = async (reducedMotion: boolean) => {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: vi.fn().mockImplementation((query: string) => ({
+          matches: reducedMotion && query === '(prefers-reduced-motion: reduce)',
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+        })),
+      });
+
+      render(<App />);
+      await waitFor(() => {
+        expect(screen.getByTestId('public-domain-scroll')).toBeTruthy();
+      });
+
+      const scrollContainer = screen.getByTestId('public-domain-scroll');
+      const card = screen.getByTestId('book-card-sherlock-holmes');
+
+      let currentScrollTop = 100;
+      Object.defineProperty(scrollContainer, 'scrollTop', {
+        configurable: true,
+        get: () => currentScrollTop,
+        set: (v: number) => {
+          currentScrollTop = v;
+        },
+      });
+      const scrollToSpy = vi.fn();
+      scrollContainer.scrollTo = scrollToSpy as unknown as typeof scrollContainer.scrollTo;
+
+      scrollContainer.getBoundingClientRect = () =>
+        ({
+          top: 100,
+          bottom: 500,
+          left: 0,
+          right: 600,
+          width: 600,
+          height: 400,
+          x: 0,
+          y: 100,
+          toJSON: () => ({}),
+        }) as DOMRect;
+
+      // Expanded card extends 140px past the bottom of the scroll container
+      card.getBoundingClientRect = () =>
+        ({
+          top: 380,
+          bottom: 640,
+          left: 16,
+          right: 584,
+          width: 568,
+          height: 260,
+          x: 16,
+          y: 380,
+          toJSON: () => ({}),
+        }) as DOMRect;
+
+      fireEvent.click(
+        screen.getByRole('button', {name: 'Expand The Adventures of Sherlock Holmes'})
+      );
+
+      await waitFor(() => {
+        expect(scrollToSpy).toHaveBeenCalledTimes(1);
+      });
+
+      const callArg = scrollToSpy.mock.calls[0][0] as ScrollToOptions;
+      // overflowBottom = 640 - 500 + 12 = 152, keeping card top visible (maxShift = 380 - 100 - 12 = 268)
+      expect(callArg.top).toBe(252);
+      expect(callArg.behavior).toBe(reducedMotion ? 'auto' : 'smooth');
+      cleanup();
+    };
+
+    await runExpandScenario(false);
+    await runExpandScenario(true);
+  });
 });
+
